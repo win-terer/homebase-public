@@ -1,0 +1,6 @@
+// 읽기 예산 테스트 전용 설정: 로컬 workerd 의 D1 만 쓴다 (원격·화면 파일 없음)
+{
+  "name": "homebase-d1-budget-test",
+  "compatibility_date": "2026-09-01",
+  "d1_databases": [{ "binding": "DB", "database_name": "budget-test", "database_id": "00000000-0000-0000-0000-000000000000" }]
+}

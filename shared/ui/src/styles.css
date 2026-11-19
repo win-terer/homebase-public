@@ -1,0 +1,500 @@
+/* 폰트는 번들에 포함한다 (외부 CDN 을 쓰지 않음) */
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+
+/* ── 디자인 토큰 ───────────────────────────────────────────── */
+:root {
+  --hb-page: #f5f6f8;
+  --hb-surface: #ffffff;
+  --hb-bg: var(--hb-surface);
+  --hb-fg: #191f28;
+  /* 흰 바탕 대비: muted ≈ 7:1, subtle ≈ 4.7:1 (2026-10-07 한 단계씩 진하게 — #6b7684/#8b95a1 은 흐려 보였다) */
+  --hb-muted: #4e5968;
+  --hb-subtle: #6b7684;
+  --hb-border: #e5e8eb;
+  --hb-border-strong: #d1d6db;
+  --hb-hover: #f2f4f6;
+  --hb-accent: #3182f6;
+  --hb-accent-soft: #e8f3ff;
+  --hb-danger: #e5484d;
+  --hb-success: #12a150;
+  --hb-radius: 12px;
+  --hb-radius-lg: 16px;
+  --hb-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 2px 12px rgb(0 0 0 / 4%);
+  /* 떠 있는 상자(팝업·메뉴): 바닥보다 한 단 밝은 면 + 깊은 그림자 + 뒤를 살짝 어둡게 */
+  --hb-raised: #ffffff;
+  --hb-shadow-pop: 0 2px 6px rgb(0 0 0 / 8%), 0 20px 56px rgb(0 0 0 / 22%);
+  --hb-scrim: rgb(25 31 40 / 22%);
+
+  color-scheme: light;
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 어두운 화면 (data-theme 은 shared/ui/src/theme.tsx 가 정한다: 자동이면 기기 설정을 따름) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --hb-page: #0f1012;
+  --hb-surface: #1a1b1e;
+  --hb-fg: #f2f4f6;
+  --hb-muted: #9aa1ab;
+  --hb-subtle: #7b828c;
+  --hb-border: #2b2d31;
+  --hb-border-strong: #3a3d42;
+  --hb-hover: #24262a;
+  --hb-accent: #4c9aff;
+  --hb-accent-soft: rgb(76 154 255 / 16%);
+  --hb-danger: #ff6b6b;
+  --hb-success: #3fb950;
+  --hb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  --hb-raised: #232529;
+  --hb-shadow-pop: 0 2px 6px rgb(0 0 0 / 40%), 0 20px 56px rgb(0 0 0 / 60%);
+  --hb-scrim: rgb(0 0 0 / 38%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--hb-page);
+  color: var(--hb-fg);
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+a {
+  color: var(--hb-accent);
+}
+
+/* ── 상단 바 ───────────────────────────────────────────────── */
+.hb-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: calc(env(safe-area-inset-top) + 56px);
+  padding: env(safe-area-inset-top) 24px 0;
+  background: color-mix(in srgb, var(--hb-surface) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--hb-border);
+}
+
+.hb-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+
+.hb-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--hb-accent);
+  color: #fff;
+  font-size: 15px;
+}
+
+.hb-nav {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.hb-nav a {
+  padding: 6px 12px;
+  white-space: nowrap;
+  border-radius: 8px;
+  color: var(--hb-muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.hb-nav a:hover {
+  background: var(--hb-hover);
+}
+
+.hb-nav a.active {
+  background: var(--hb-accent-soft);
+  color: var(--hb-accent);
+}
+
+.hb-header-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* 금액 보기 스위치 */
+.hb-privacy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hb-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hb-theme:hover,
+.hb-privacy:hover {
+  background: var(--hb-hover);
+}
+
+.hb-privacy-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--hb-border);
+  transition: background 0.15s;
+}
+
+.hb-privacy-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 0.15s;
+}
+
+.hb-privacy[aria-checked="true"] .hb-privacy-track {
+  background: var(--hb-accent);
+}
+
+.hb-privacy[aria-checked="true"] .hb-privacy-thumb {
+  transform: translateX(12px);
+}
+
+/* 가린 금액: 흐리게, 누르면 그것만 잠깐 보임 */
+/* 스위치가 설정되기 전(첫 화면)에도 가려지도록 'off' 가 아니면 가린다 */
+:root:not([data-privacy="off"]) .hb-secret:not(.is-revealed) {
+  filter: blur(0.42em);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hb-secret {
+  transition: filter 0.15s;
+}
+
+.hb-logout button {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hb-logout button:hover {
+  background: var(--hb-hover);
+}
+
+.hb-main {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 32px);
+}
+
+/* ── 공통 요소 ─────────────────────────────────────────────── */
+.hb-narrow {
+  max-width: 760px;
+}
+
+.hb-muted {
+  color: var(--hb-muted);
+}
+
+.hb-error {
+  color: var(--hb-danger);
+}
+
+.hb-card {
+  margin: 16px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-radius-lg);
+  background: var(--hb-surface);
+  box-shadow: var(--hb-shadow);
+}
+
+.hb-card-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  color: var(--hb-muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.hb-back:hover {
+  color: var(--hb-fg);
+}
+
+.hb-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hb-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.hb-button:hover {
+  filter: brightness(1.06);
+}
+
+.hb-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
+
+.hb-button.is-secondary {
+  background: var(--hb-hover);
+  color: var(--hb-fg);
+}
+
+/* 되돌릴 수 없는 것을 확인받을 때만 — 평소 화면에는 쓰지 않는다 */
+.hb-button.is-danger {
+  background: var(--hb-danger);
+  color: #fff;
+}
+
+.hb-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hb-table th,
+.hb-table td {
+  padding: 10px 0;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--hb-border);
+}
+
+.hb-table th {
+  width: 6em;
+  font-weight: 500;
+  color: var(--hb-muted);
+  white-space: nowrap;
+}
+
+/* 일정 카테고리 색 (일정 앱·가계부 달력이 같이 씀). 요소에 .hb-c-<색> 을 붙이면 --hb-c 로 쓸 수 있다 */
+:root {
+  --hb-cat-blue: #3182f6;
+  --hb-cat-green: #12a150;
+  --hb-cat-red: #e5484d;
+  --hb-cat-orange: #f08c00;
+  --hb-cat-purple: #8b5cf6;
+  --hb-cat-teal: #0d9488;
+  --hb-cat-gray: #8b95a1;
+}
+
+:root[data-theme="dark"] {
+  --hb-cat-blue: #4c9aff;
+  --hb-cat-green: #3fb950;
+  --hb-cat-red: #ff6b6b;
+  --hb-cat-orange: #ffa94d;
+  --hb-cat-purple: #a78bfa;
+  --hb-cat-teal: #2dd4bf;
+  --hb-cat-gray: #7b828c;
+}
+
+.hb-c-blue { --hb-c: var(--hb-cat-blue); }
+.hb-c-green { --hb-c: var(--hb-cat-green); }
+.hb-c-red { --hb-c: var(--hb-cat-red); }
+.hb-c-orange { --hb-c: var(--hb-cat-orange); }
+.hb-c-purple { --hb-c: var(--hb-cat-purple); }
+.hb-c-teal { --hb-c: var(--hb-cat-teal); }
+.hb-c-gray { --hb-c: var(--hb-cat-gray); }
+
+@media (max-width: 700px) {
+  /* 앱이 늘어도 탭이 잘리지 않게 좁은 화면은 집 그림만 */
+  .hb-brand-name {
+    display: none;
+  }
+  .hb-privacy {
+    font-size: 0;
+    gap: 0;
+  }
+  .hb-theme-label {
+    display: none;
+  }
+  .hb-header-end {
+    gap: 0;
+  }
+  .hb-theme,
+  .hb-privacy,
+  .hb-logout button {
+    padding: 6px 7px;
+  }
+  .hb-nav a {
+    padding: 6px 10px;
+  }
+  .hb-header {
+    gap: 12px;
+    padding: env(safe-area-inset-top) 16px 0;
+  }
+  .hb-main {
+    padding: 16px;
+  }
+}
+
+/* 우클릭 메뉴 (shared/ui/src/ContextMenu.tsx) */
+.hb-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-radius);
+  background: var(--hb-surface);
+  box-shadow: 0 10px 32px rgb(0 0 0 / 16%);
+  outline: none;
+}
+
+.hb-menu-item {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--hb-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hb-menu-item.is-active:not(:disabled) {
+  background: var(--hb-hover);
+}
+
+.hb-menu-item.is-danger {
+  color: var(--hb-danger);
+}
+
+.hb-menu-item:disabled {
+  color: var(--hb-subtle);
+  cursor: default;
+}
+
+.hb-menu-hint {
+  flex: none;
+  color: var(--hb-subtle);
+  font-size: 12px;
+}
+
+.hb-menu-sep {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--hb-border);
+}
+
+/* ── 사진 첨부 (shared/core/src/photos-web.tsx) ─────────────────────── */
+.hb-photos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.hb-photo { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: var(--hb-subtle); border: 1px solid var(--hb-border); flex: none; }
+.hb-photo-img { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.hb-photo-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hb-photo-del { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; border: 0; padding: 0; font-size: 11px; line-height: 20px;
+  background: rgb(0 0 0 / 0.55); color: #fff; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.hb-photo:hover .hb-photo-del, .hb-photo-del:focus-visible { opacity: 1; }
+@media (hover: none) { .hb-photo-del { opacity: 1; } }
+.hb-photo.is-busy { display: grid; place-items: center; }
+.hb-photo-spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--hb-border); border-top-color: var(--hb-accent); animation: hb-spin 0.8s linear infinite; }
+@keyframes hb-spin { to { transform: rotate(360deg); } }
+.hb-photo-add { height: 64px; padding: 0 12px; border-radius: 8px; border: 1px dashed var(--hb-border); background: none; color: var(--hb-muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.hb-photo-add:hover { color: var(--hb-fg); border-color: var(--hb-muted); }
+.hb-photo-err { flex-basis: 100%; font-size: 12px; }
+.hb-photos.is-compact { margin-top: 4px; }
+.hb-photos.is-compact .hb-photo { width: 48px; height: 48px; }
+.hb-photos.is-compact .hb-photo-add { height: 48px; font-size: 12px; }
+.hb-viewer { position: fixed; inset: 0; z-index: 1000; background: rgb(0 0 0 / 0.86); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+.hb-viewer img { max-width: 100%; max-height: calc(100vh - 90px); object-fit: contain; border-radius: 6px; }
+.hb-viewer-bar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; color: #e8e8e8; font-size: 13px; font-variant-numeric: tabular-nums; }
+.hb-viewer-bar button, .hb-viewer-bar a { padding: 5px 12px; border-radius: 8px; border: 1px solid rgb(255 255 255 / 0.25); background: rgb(255 255 255 / 0.08); color: #f2f2f2; font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; }
+.hb-viewer-bar button:hover, .hb-viewer-bar a:hover { background: rgb(255 255 255 / 0.18); }
+.hb-photo-toggle { border: 0; background: none; padding: 0 2px; color: var(--hb-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.hb-photo-toggle:hover { color: var(--hb-fg); }
+.hb-photo-add { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.hb-photo-hint { font-size: 10.5px; color: var(--hb-muted); opacity: 0.8; }
+@media (hover: none) { .hb-photo-hint { display: none; } }
+.hb-photos.is-compact .hb-photo-hint { font-size: 10px; }
+/* 달력 줄의 사진 표시 — 글자색을 따라 흐리게, 줄어들지 않게 */
+.hb-photo-mark { flex: none; width: 11px; height: 11px; margin-left: 3px; vertical-align: -1px; fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.6; }

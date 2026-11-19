@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────
+# 보안: 개인 금융·행적 데이터는 절대 커밋하지 않는다.
+# ─────────────────────────────────────────────────────────────
+
+# 런타임 데이터 폴더 (DB, 업로드, 백업 전부 여기에 생성됨)
+data/
+uploads/
+imports/
+backups/
+
+# DB 파일 (어느 위치에 생기든)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# 원본 내보내기 파일 (엑셀·CSV·캘린더). 테스트용 가짜 데이터는 코드로 생성한다.
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+*.ics
+*.zip
+
+# 비밀값
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 의존성·빌드 산출물
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# 로그
+logs/
+*.log
+
+# OS·에디터
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# wrangler 로컬 상태 (로컬 D1 포함)
+.wrangler/
+.dev.vars
+
+# 메일 동기화 도구가 만드는 파서 번들 (setup.sh 가 설치할 때 만든다 — 2MB 빌드 산출물)
+tools/ledger-sync/prepare-import.mjs

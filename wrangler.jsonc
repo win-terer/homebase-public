@@ -1,0 +1,32 @@
+// homebase 워커.
+//
+// **D1·KV 의 id 는 일부러 비어 있다.** 「Deploy to Cloudflare」 버튼으로 설치하면 Cloudflare 가
+// 누르는 사람 계정에 새로 만들어 묶고, 복제된 저장소의 이 파일에 진짜 id 를 적어 커밋해 준다.
+// 직접 만들어 쓸 때는 `wrangler d1 create` · `wrangler kv namespace create` 로 만든 id 를 넣는다.
+//
+// 로그인 비밀번호는 저장소에 두지 않는다 — 설치 화면의 LOGIN_PASSWORD 칸(또는 대시보드 Secret)에 넣는다.
+{
+  "name": "homebase",
+  "main": "host/src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./host/dist/web",
+    "binding": "ASSETS",
+    // 화면 파일도 로그인 확인을 거친 뒤에만 준다
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "homebase-db",
+      "database_id": "",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // 사진 첨부 바이트 (일정·가계부, host/src/worker/photos.ts). 어느 항목 것인지는 D1 core_photos
+  "kv_namespaces": [{ "binding": "PHOTOS", "id": "" }],
+  "observability": { "enabled": true }
+}

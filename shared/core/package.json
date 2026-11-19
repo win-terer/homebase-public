@@ -1,0 +1,25 @@
+{
+  "name": "@homebase/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./web": "./src/web.ts",
+    "./web-cache": "./src/web-cache.ts",
+    "./photos": "./src/photos.ts",
+    "./photos-web": "./src/photos-web.tsx",
+    "./secrets": "./src/secrets.ts"
+  },
+  "dependencies": {
+    "@homebase/db": "workspace:*",
+    "hono": "^4.13.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}

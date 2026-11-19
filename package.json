@@ -1,0 +1,33 @@
+{
+  "name": "homebase",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm build && pnpm db:migrate:local && wrangler dev --port 8787",
+    "build": "pnpm --filter @homebase/host build",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "deploy": "pnpm build && wrangler deploy && wrangler d1 migrations apply DB --remote",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.0",
+    "wrangler": "^4.144.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "가계부·일정 기록이 들어가는 데이터베이스입니다. 그대로 '신규 생성'을 고르세요."
+      },
+      "PHOTOS": {
+        "description": "기록에 붙이는 사진이 들어갑니다. 그대로 '신규 생성'을 고르세요."
+      }
+    }
+  }
+}

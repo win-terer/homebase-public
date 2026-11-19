@@ -1,0 +1,29 @@
+{
+  "name": "@homebase/ledger",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server/index.ts",
+    "./web": "./src/web/index.ts",
+    "./web/*": "./src/web/*",
+    "./importers/*": "./src/importers/*"
+  },
+  "dependencies": {
+    "@homebase/core": "workspace:*",
+    "@homebase/db": "workspace:*",
+    "@homebase/ui": "workspace:*",
+    "@hyunbinseo/holidays-kr": "^5.2027.2",
+    "exceljs": "^4.4.0",
+    "hono": "^4.13.0",
+    "react-router": "^8.4.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  }
+}
