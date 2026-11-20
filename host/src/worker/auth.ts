@@ -104,13 +104,27 @@ async function startSession(c: Context<AuthEnv>, extra: ReturnType<SqlDb["prepar
 /** 로그인 뒤 돌아갈 곳. 같은 사이트 안의 경로만 받는다 */
 const safeNext = (next: string | undefined) => (next && /^\/(?!\/)/.test(next) && !next.startsWith("/\\") ? next : "/");
 
+/** `skipped = 1` 이면 OTP 를 안 쓰기로 한 상태 — 로그인에서 코드를 묻지 않는다 */
 const totpRow = (db: SqlDb) =>
-  db.prepare("SELECT secret, confirmed, setup_token, last_counter FROM auth_totp WHERE id = 1").first<{
-    secret: string;
-    confirmed: number;
-    setup_token: string | null;
-    last_counter: number;
-  }>();
+  db
+    .prepare("SELECT secret, confirmed, setup_token, last_counter, skipped FROM auth_totp WHERE id = 1")
+    .first<{
+      secret: string;
+      confirmed: number;
+      setup_token: string | null;
+      last_counter: number;
+      skipped: number;
+    }>()
+    // 칸이 아직 없는 사이(배포는 코드 → 마이그레이션 순서다)에는 '안 건너뜀' 으로 본다 — 더 안전한 쪽
+    .catch(() =>
+      db.prepare("SELECT secret, confirmed, setup_token, last_counter, 0 AS skipped FROM auth_totp WHERE id = 1").first<{
+        secret: string;
+        confirmed: number;
+        setup_token: string | null;
+        last_counter: number;
+        skipped: number;
+      }>(),
+    );
 
 export function authRoutes() {
   const auth = new Hono<AuthEnv>();
@@ -118,30 +132,32 @@ export function authRoutes() {
   auth.get("/login", async (c) => {
     const totp = await totpRow(c.env.DB);
     if (!totp?.confirmed) return c.redirect("/setup");
-    return c.html(loginPage({ next: safeNext(c.req.query("next")) }));
+    return c.html(loginPage({ next: safeNext(c.req.query("next")), otp: !totp.skipped }));
   });
 
   auth.post("/login", async (c) => {
     const form = await c.req.parseBody();
     const next = safeNext(typeof form.next === "string" ? form.next : undefined);
-    const fail = (error: string, status: 401 | 429 = 401) => c.html(loginPage({ next, error }), status);
     const now = Date.now();
     const ip = await ipHash(c);
+    const totp = await totpRow(c.env.DB);
+    if (!totp?.confirmed) return c.redirect("/setup");
+    const otpOn = !totp.skipped;
+    const fail = (error: string, status: 401 | 429 = 401) => c.html(loginPage({ next, error, otp: otpOn }), status);
     const locked = await lockedMessage(c.env.DB, ip, now);
     if (locked) return fail(locked, 429);
 
-    const totp = await totpRow(c.env.DB);
-    if (!totp?.confirmed) return c.redirect("/setup");
     const password = typeof form.password === "string" ? form.password : "";
     const code = typeof form.code === "string" ? form.code.replace(/\s/g, "") : "";
     const okPassword = await passwordMatches(password, c.env.LOGIN_PASSWORD);
-    const counter = await verifyTotp(totp.secret, code, now, totp.last_counter);
+    // OTP 를 안 쓰기로 했으면 코드를 아예 보지 않는다
+    const counter = otpOn ? await verifyTotp(totp.secret, code, now, totp.last_counter) : 0;
     if (!okPassword || counter === null) {
       await recordFail(c.env.DB, ip, now);
-      return fail("비밀번호나 OTP 코드가 맞지 않아요.");
+      return fail(otpOn ? "비밀번호나 OTP 코드가 맞지 않아요." : "비밀번호가 맞지 않아요.");
     }
     await startSession(c, [
-      c.env.DB.prepare("UPDATE auth_totp SET last_counter = ? WHERE id = 1").bind(counter),
+      ...(otpOn ? [c.env.DB.prepare("UPDATE auth_totp SET last_counter = ? WHERE id = 1").bind(counter)] : []),
       c.env.DB.prepare("DELETE FROM auth_fails WHERE ip_hash = ?").bind(ip),
     ]);
     return c.redirect(next);
@@ -149,7 +165,9 @@ export function authRoutes() {
 
   auth.get("/setup", async (c) => {
     const totp = await totpRow(c.env.DB);
-    if (totp?.confirmed) return c.redirect("/login");
+    // 건너뛴 상태면 다시 열어 둔다 — 홈 화면의 [OTP 켜기] 가 여기로 보낸다.
+    // (그 상태는 어차피 비밀번호 하나로 들어오므로 열어 둬서 더 열리는 것이 없다)
+    if (totp?.confirmed && !totp.skipped) return c.redirect("/login");
     if (!c.env.LOGIN_PASSWORD) return c.html(messagePage("설정 필요", "워커 설정에 LOGIN_PASSWORD 비밀이 없어요."), 503);
     return c.html(setupPasswordPage());
   });
@@ -159,7 +177,7 @@ export function authRoutes() {
     const now = Date.now();
     const ip = await ipHash(c);
     const totp = await totpRow(c.env.DB);
-    if (totp?.confirmed) return c.redirect("/login");
+    if (totp?.confirmed && !totp.skipped) return c.redirect("/login");
     const locked = await lockedMessage(c.env.DB, ip, now);
     if (locked) return c.html(setupPasswordPage(locked), 429);
     const form = await c.req.parseBody();
@@ -171,7 +189,7 @@ export function authRoutes() {
     const token = randomToken();
     await c.env.DB.prepare(
       `INSERT INTO auth_totp (id, secret, confirmed, setup_token) VALUES (1, ?, 0, ?)
-       ON CONFLICT (id) DO UPDATE SET secret = excluded.secret, setup_token = excluded.setup_token, confirmed = 0`,
+       ON CONFLICT (id) DO UPDATE SET secret = excluded.secret, setup_token = excluded.setup_token, confirmed = 0, skipped = 0`,
     )
       .bind(secret, await sha256(token))
       .run();
@@ -185,7 +203,7 @@ export function authRoutes() {
     const now = Date.now();
     const ip = await ipHash(c);
     const totp = await totpRow(c.env.DB);
-    if (!totp || totp.confirmed) return c.redirect("/login");
+    if (!totp || (totp.confirmed && !totp.skipped)) return c.redirect("/login");
     const token = getCookie(c, SETUP_COOKIE);
     if (!token || (await sha256(token)) !== totp.setup_token) return c.redirect("/setup");
     const locked = await lockedMessage(c.env.DB, ip, now);
@@ -199,8 +217,26 @@ export function authRoutes() {
     }
     deleteCookie(c, SETUP_COOKIE, { path: "/", secure: true });
     await startSession(c, [
-      c.env.DB.prepare("UPDATE auth_totp SET confirmed = 1, setup_token = NULL, last_counter = ? WHERE id = 1").bind(counter),
+      c.env.DB.prepare("UPDATE auth_totp SET confirmed = 1, skipped = 0, setup_token = NULL, last_counter = ? WHERE id = 1").bind(counter),
     ]);
+    return c.redirect("/");
+  });
+
+  /**
+   * **OTP 없이 쓰기.** QR 화면에서 고른다 — 권하는 쪽은 OTP 라 그 아래 작게 둔다.
+   *
+   * 설치하자마자 QR 부터 찍으라고 하면 거기서 그만두는 사람이 생긴다(사용자 지적 2026-11-20).
+   * 그렇다고 OTP 를 빼면 비밀번호 하나로 가계부가 열린다. 그래서 **고르게** 한다.
+   * 비밀번호는 바로 앞 `/setup` 에서 이미 확인했다(그 증거가 setup 쿠키다).
+   */
+  auth.post("/setup/skip", async (c) => {
+    const totp = await totpRow(c.env.DB);
+    if (!totp || (totp.confirmed && !totp.skipped)) return c.redirect("/login");
+    const token = getCookie(c, SETUP_COOKIE);
+    if (!token || (await sha256(token)) !== totp.setup_token) return c.redirect("/setup");
+    deleteCookie(c, SETUP_COOKIE, { path: "/", secure: true });
+    // 비밀은 지운다 — 안 쓸 열쇠를 들고 있을 이유가 없다. 나중에 켤 때 새로 만든다
+    await startSession(c, [c.env.DB.prepare("UPDATE auth_totp SET confirmed = 1, skipped = 1, secret = '', setup_token = NULL WHERE id = 1")]);
     return c.redirect("/");
   });
 

@@ -4,6 +4,8 @@ import { clearWebCache } from "@homebase/core/web-cache";
 interface Session {
   expiresAt: string | null;
   devices: number;
+  /** 2단계 인증(OTP)을 쓰고 있나 */
+  otp: boolean;
 }
 
 const formatDate = (iso: string) =>
@@ -24,6 +26,20 @@ export function Home() {
     <section className="hb-narrow">
       <h1>homebase</h1>
       {error && <p className="hb-error">서버에 연결할 수 없어요.</p>}
+      {/* OTP 를 안 쓰기로 골랐으면 **켜라고 권한다.** 비밀번호 하나로 가계부가 전부 열린다 */}
+      {session && !session.otp && (
+        <div className="hb-card">
+          <h2 className="hb-card-title">2단계 인증이 꺼져 있어요</h2>
+          <p className="hb-muted">
+            지금은 비밀번호만 맞으면 들어올 수 있어요. 휴대폰 OTP 앱을 함께 쓰면, 비밀번호가 새어도 남이 못 들어옵니다.
+          </p>
+          <div className="hb-actions">
+            <a className="hb-button" href="/setup">
+              OTP 켜기
+            </a>
+          </div>
+        </div>
+      )}
       {session && (
         <div className="hb-card">
           <h2 className="hb-card-title">로그아웃</h2>

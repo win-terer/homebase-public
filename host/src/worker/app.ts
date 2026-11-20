@@ -98,10 +98,12 @@ export function createApp() {
   app.get("/api/health", (c) => c.json({ ok: true, modules: serverModules.map((m) => m.id) }));
   /** 로그인 정보 (홈 화면용): 이 기기의 만료 시각과 로그인된 기기 수 */
   app.get("/api/session", async (c) => {
-    const row = await c.env.DB.prepare("SELECT count(*) AS n FROM auth_sessions WHERE expires_at > ?")
-      .bind(new Date().toISOString())
-      .first<{ n: number }>();
-    return c.json({ expiresAt: c.get("session")?.expiresAt ?? null, devices: row?.n ?? 0 });
+    const [row, totp] = await Promise.all([
+      c.env.DB.prepare("SELECT count(*) AS n FROM auth_sessions WHERE expires_at > ?").bind(new Date().toISOString()).first<{ n: number }>(),
+      // OTP 를 쓰고 있나 (안 쓰기로 골랐으면 홈 화면이 켜라고 권한다)
+      c.env.DB.prepare("SELECT skipped FROM auth_totp WHERE id = 1").first<{ skipped: number }>().catch(() => null),
+    ]);
+    return c.json({ expiresAt: c.get("session")?.expiresAt ?? null, devices: row?.n ?? 0, otp: !totp?.skipped });
   });
   /**
    * 동거인(손님)에게 열리는 전부. 주인 API 와 **따로** 판 좁은 길이다 — 왜 그랬는지는 guest.ts 참고.

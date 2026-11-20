@@ -545,3 +545,78 @@ describe("자동 가져오기 생존 보고 — 가져오기 키로 연다", () 
     expect(o.sync).toMatchObject({ failStreak: 0 });
   });
 });
+
+describe("OTP 없이 쓰기", () => {
+  /** QR 화면까지 간 뒤 '건너뛰기' 를 고른다 */
+  async function skipOtp() {
+    await send("/setup", { method: "POST", form: { password: PASSWORD } });
+    return send("/setup/skip", { method: "POST" });
+  }
+
+  it("건너뛰면 그 자리에서 로그인되고, 다음부터 비밀번호만 묻는다", async () => {
+    const res = await skipOtp();
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+
+    // 로그인 화면에 OTP 칸이 없다
+    const page = await (await send("/login")).text();
+    expect(page).not.toContain('name="code"');
+    expect(page).toContain("비밀번호를 넣어주세요");
+  });
+
+  it("비밀번호만으로 로그인된다", async () => {
+    await skipOtp();
+    cookies = {};
+    const res = await send("/login", { method: "POST", form: { password: PASSWORD } });
+    expect(res.status).toBe(302);
+    expect((await send("/api/session")).status).toBe(200);
+  });
+
+  it("비밀번호가 틀리면 그대로 막힌다", async () => {
+    await skipOtp();
+    cookies = {};
+    const res = await send("/login", { method: "POST", form: { password: "틀린값" } });
+    expect(res.status).toBe(401);
+    expect(await res.text()).toContain("비밀번호가 맞지 않아요");
+  });
+
+  it("setup 쿠키 없이 건너뛰기만 찔러서는 안 열린다", async () => {
+    // 아직 아무것도 안 한 상태 — 설정부터 하라고 돌려보낸다
+    expect((await send("/setup/skip", { method: "POST" })).headers.get("Location")).toBe("/login");
+    expect((await send("/api/session")).status).toBe(401); // API 는 돌려보내지 않고 바로 막는다
+
+    // 비밀번호 확인까지는 됐지만(행이 생겼다) **그 쿠키를 들고 있지 않은** 다른 사람
+    await send("/setup", { method: "POST", form: { password: PASSWORD } });
+    cookies = {};
+    const res = await send("/setup/skip", { method: "POST" });
+    expect(res.headers.get("Location")).toBe("/setup");
+    // 세션은 끝내 안 생긴다
+    expect((await send("/api/session")).status).toBe(401);
+  });
+
+  it("건너뛴 뒤에도 **나중에 켤 수 있다** — /setup 이 다시 열린다", async () => {
+    await skipOtp();
+    expect((await send("/setup")).status).toBe(200);
+    const page = await (await send("/setup", { method: "POST", form: { password: PASSWORD } })).text();
+    const secret = secretFromPage(page);
+    expect((await send("/setup/confirm", { method: "POST", form: { code: await codeNow(secret) } })).status).toBe(302);
+
+    // 이제 OTP 를 다시 묻고, /setup 은 닫힌다
+    expect(await (await send("/login")).text()).toContain('name="code"');
+    expect((await send("/setup")).headers.get("Location")).toBe("/login");
+  });
+
+  it("OTP 를 켜 둔 상태에서는 건너뛰기가 통하지 않는다", async () => {
+    await setUp();
+    const res = await send("/setup/skip", { method: "POST" });
+    expect(res.headers.get("Location")).toBe("/login");
+  });
+
+  it("세션 조회가 OTP 를 쓰는지 알려 준다 (홈 화면이 켜라고 권할 때 쓴다)", async () => {
+    await skipOtp();
+    expect((await (await send("/api/session")).json())).toMatchObject({ otp: false });
+    const page = await (await send("/setup", { method: "POST", form: { password: PASSWORD } })).text();
+    await send("/setup/confirm", { method: "POST", form: { code: await codeNow(secretFromPage(page)) } });
+    expect((await (await send("/api/session")).json())).toMatchObject({ otp: true });
+  });
+});
