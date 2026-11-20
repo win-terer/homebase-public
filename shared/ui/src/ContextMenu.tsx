@@ -26,7 +26,11 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 
 export type MenuItem = { separator: true } | { label: string; onSelect: () => void; hint?: string; danger?: boolean; disabled?: boolean };
 
-type OpenMenu = (e: MouseEvent, items: MenuItem[]) => void;
+/**
+ * 메뉴를 열 자리. 우클릭이면 그 이벤트를, **버튼으로 열 때는 좌표**를 준다
+ * (설정 톱니바퀴처럼 왼쪽 클릭으로 여는 작은 메뉴 — 사용자 요청 2026-11-20).
+ */
+type OpenMenu = (at: MouseEvent | { x: number; y: number }, items: MenuItem[]) => void;
 
 const MenuContext = createContext<OpenMenu>(() => {});
 
@@ -50,14 +54,18 @@ export function ContextMenuProvider({ children, fallback }: { children: ReactNod
   const box = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setState(null), []);
 
-  const open = useCallback<OpenMenu>((e, items) => {
+  const open = useCallback<OpenMenu>((at, items) => {
     if (!items.length) return;
-    // 행 안에 메모 입력칸이 있다 — 거기서는 브라우저 메뉴를 그대로 둬야 붙여넣기가 된다.
-    // 쓰는 쪽마다 챙기게 하면 언젠가 빠뜨리므로 여기서 한 번에 막는다
-    if (isTyping(e.target as Element | null)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setState({ x: e.clientX, y: e.clientY, items });
+    if ("clientX" in at) {
+      // 행 안에 메모 입력칸이 있다 — 거기서는 브라우저 메뉴를 그대로 둬야 붙여넣기가 된다.
+      // 쓰는 쪽마다 챙기게 하면 언젠가 빠뜨리므로 여기서 한 번에 막는다
+      if (isTyping(at.target as Element | null)) return;
+      at.preventDefault();
+      at.stopPropagation();
+      setState({ x: at.clientX, y: at.clientY, items });
+    } else {
+      setState({ x: at.x, y: at.y, items });
+    }
     setActive(-1);
   }, []);
 

@@ -6,4 +6,8 @@ export const calendarWeb: WebModule = {
   title: "일정",
   path: "/calendar",
   Root: CalendarRoot,
+  tabs: [
+    { path: "/calendar/photos", title: "사진" },
+    { path: "/calendar/todo", title: "할 일" },
+  ],
 };

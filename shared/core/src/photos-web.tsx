@@ -8,7 +8,7 @@ import { cacheGet, cacheSet, clearWebCache, primeRev } from "./web-cache.ts";
  * 올리기 전에 **브라우저에서 줄인다**: 긴 변 1600px JPEG(품질 0.82) + 긴 변 320px 썸네일.
  * 다시 그려서 인코딩하므로 원본·EXIF(촬영 위치 등)는 남지 않는다. 사용자 결정(2026-10-09): 원본 보관 안 함.
  */
-export type PhotoApp = "calendar" | "ledger";
+export type PhotoApp = "calendar" | "ledger" | "todo";
 export interface Photo {
   id: string;
   width: number | null;
@@ -19,7 +19,17 @@ const FULL_EDGE = 1600;
 const THUMB_EDGE = 320;
 const FULL_LIMIT = 1400 * 1024; // 서버 상한(1.5MB)보다 조금 아래 — 넘으면 품질을 낮춰 한 번 더
 
-export const photoUrl = (id: string, thumb = false) => `/api/photos/file/${id}${thumb ? "?t=1" : ""}`;
+/**
+ * 사진 API 주소. 손님 화면은 **다른 길**로 간다(`/api/guest/photos`) — 동거인에게는 그 길만 열려
+ * 있고, 거기서는 '공유 카테고리 일정에 붙은 사진인가' 를 매번 다시 본다. 화면마다 번들이 따로라
+ * (host/vite.config.ts) 한 페이지에 둘이 섞이지 않는다.
+ */
+let BASE = "/api/photos";
+export const setPhotoBase = (base: string) => {
+  BASE = base;
+};
+
+export const photoUrl = (id: string, thumb = false) => `${BASE}/file/${id}${thumb ? "?t=1" : ""}`;
 
 async function getJson<T>(url: string, cached = true): Promise<T> {
   if (cached) {
@@ -87,8 +97,8 @@ async function shrink(file: Blob, edge: number, quality: number): Promise<{ blob
 
 export const photoApi = {
   list: (app: PhotoApp, ref: number | string) =>
-    getJson<{ photos: Photo[]; max: number; enabled: boolean }>(`/api/photos?app=${app}&ref=${encodeURIComponent(String(ref))}`),
-  marks: (app: PhotoApp) => getJson<{ marks: Record<string, number> }>(`/api/photos/marks?app=${app}`),
+    getJson<{ photos: Photo[]; max: number; enabled: boolean }>(`${BASE}?app=${app}&ref=${encodeURIComponent(String(ref))}`),
+  marks: (app: PhotoApp) => getJson<{ marks: Record<string, number> }>(`${BASE}/marks?app=${app}`),
   async upload(app: PhotoApp, ref: number, file: File): Promise<{ id: string }> {
     let full;
     try {
@@ -105,15 +115,15 @@ export const photoApi = {
     form.set("thumb", thumb.blob, "thumb.jpg");
     form.set("w", String(full.w));
     form.set("h", String(full.h));
-    return send("/api/photos", { method: "POST", body: form }) as Promise<{ id: string }>;
+    return send(BASE, { method: "POST", body: form }) as Promise<{ id: string }>;
   },
-  remove: (id: string) => send(`/api/photos/${id}`, { method: "DELETE" }),
+  remove: (id: string) => send(`${BASE}/${id}`, { method: "DELETE" }),
   /** 다른 항목으로 옮기기 (가계부 '옮기지 못한 메모' 붙이기) */
   move: (app: PhotoApp, from: string, to: number) =>
-    send("/api/photos/move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app, from, to }) }),
+    send(`${BASE}/move`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app, from, to }) }),
   /** 'lost:…' 로 남겨 둔 사진 버리기 */
   drop: (app: PhotoApp, ref: string) =>
-    send("/api/photos/drop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app, ref }) }),
+    send(`${BASE}/drop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ app, ref }) }),
 };
 
 /**
@@ -138,7 +148,8 @@ if (typeof document !== "undefined") {
     const keepText = Boolean(here?.closest("input, textarea, [contenteditable]") && data?.types.includes("text/plain"));
     const host = here?.closest("[data-photo-target]") ?? (lastPressed?.isConnected ? lastPressed.closest("[data-photo-target]") : null);
     const target = host?.getAttribute("data-photo-target");
-    const m = target?.match(/^(calendar|ledger):(\d+)$/);
+    // 앱 이름은 PhotoApp 과 같아야 한다 — 빠뜨리면 그 화면에서 붙여넣기만 조용히 안 된다
+    const m = target?.match(/^(calendar|ledger|todo):(\d+)$/);
     if (!m) return;
     if (!keepText) e.preventDefault();
     const strip = strips.get(target!);
@@ -188,7 +199,24 @@ export function usePhotoMarks(app: PhotoApp): Record<string, number> {
  * 사진 줄: 썸네일 + [＋ 사진] + 크게 보기. 항목 하나에 max 장(서버가 알려 줌, 3).
  * `autoOpenPicker`: 처음 그릴 때 파일 고르기를 바로 연다 (줄의 📷 단추로 열었을 때)
  */
-export function PhotoStrip({ app, refId, className = "", autoOpenPicker = false }: { app: PhotoApp; refId: number; className?: string; autoOpenPicker?: boolean }) {
+export function PhotoStrip({
+  app,
+  refId,
+  className = "",
+  autoOpenPicker = false,
+  readOnly = false,
+}: {
+  app: PhotoApp;
+  refId: number;
+  className?: string;
+  autoOpenPicker?: boolean;
+  /**
+   * **보기만.** 붙인 사진이 있으면 보여 주고, 없으면 아무것도 그리지 않는다.
+   * 보기 화면에 '＋ 사진 / 또는 Ctrl+V' 가 떠 있으면 붙일 자리인지 본 것인지 헷갈린다
+   * (사용자 지적 2026-11-20) — 붙이는 건 고치기 화면에서만.
+   */
+  readOnly?: boolean;
+}) {
   const [photos, setPhotos] = useState<Photo[] | null>(null);
   const [max, setMax] = useState(3);
   const [enabled, setEnabled] = useState(true);
@@ -229,9 +257,10 @@ export function PhotoStrip({ app, refId, className = "", autoOpenPicker = false 
     await load().catch(() => {});
   };
 
-  // 붙여넣기 받기 — 최신 add 를 부르도록 매번 다시 건다
+  // 붙여넣기 받기 — 최신 add 를 부르도록 매번 다시 건다. 보기만 할 때는 안 받는다
   const key = `${app}:${refId}`;
   useEffect(() => {
+    if (readOnly) return;
     strips.set(key, (files) => void add(files));
     return () => void (strips.get(key) && strips.delete(key));
   });
@@ -248,17 +277,23 @@ export function PhotoStrip({ app, refId, className = "", autoOpenPicker = false 
   };
 
   if (!photos) return null;
-  const canAdd = enabled && photos.length + busy < max;
+  if (readOnly && !photos.length) return null; // 보기 화면에 빈 자리를 만들지 않는다
+  const canAdd = !readOnly && enabled && photos.length + busy < max;
   return (
-    <div className={`hb-photos ${className}`} data-photo-target={key}>
+    /* 보기만 할 때는 **붙여넣기 표적 자체를 달지 않는다.** 달아 두면 붙여넣기가 이 자리를
+       찾아내 등록된 strip 이 없다고 곧장 올려 버린다 — 여러 줄을 펼쳐 둔 채 Ctrl+V 하면
+       어디로 들어갔는지 알 수 없다 (사용자 지적 2026-11-20) */
+    <div className={`hb-photos ${className}`} data-photo-target={readOnly ? undefined : key}>
       {photos.map((p, i) => (
         <span key={p.id} className="hb-photo">
           <button type="button" className="hb-photo-img" onClick={() => setView(i)} aria-label={`사진 ${i + 1} 크게 보기`}>
             <img src={photoUrl(p.id, true)} alt="" loading="lazy" />
           </button>
-          <button type="button" className="hb-photo-del" onClick={() => void remove(p.id)} aria-label="사진 지우기" title="지우기">
-            ✕
-          </button>
+          {!readOnly && (
+            <button type="button" className="hb-photo-del" onClick={() => void remove(p.id)} aria-label="사진 지우기" title="지우기">
+              ✕
+            </button>
+          )}
         </span>
       ))}
       {Array.from({ length: busy }, (_, i) => (
@@ -272,7 +307,7 @@ export function PhotoStrip({ app, refId, className = "", autoOpenPicker = false 
           <span className="hb-photo-hint">또는 Ctrl+V</span>
         </button>
       )}
-      {!enabled && <span className="hb-muted">사진 기능이 아직 켜져 있지 않아요</span>}
+      {!enabled && !readOnly && <span className="hb-muted">사진 기능이 아직 켜져 있지 않아요</span>}
       <input
         ref={input}
         type="file"
@@ -286,13 +321,26 @@ export function PhotoStrip({ app, refId, className = "", autoOpenPicker = false 
       />
       {error && <span className="hb-error hb-photo-err">{error}</span>}
       {view !== null && photos[view] && (
-        <PhotoViewer photos={photos} index={view} onIndex={setView} onClose={() => setView(null)} onDelete={(id) => void remove(id)} />
+        <PhotoViewer photos={photos} index={view} onIndex={setView} onClose={() => setView(null)} onDelete={readOnly ? undefined : (id) => void remove(id)} />
       )}
     </div>
   );
 }
 
-function PhotoViewer({ photos, index, onIndex, onClose, onDelete }: { photos: Photo[]; index: number; onIndex(i: number): void; onClose(): void; onDelete(id: string): void }) {
+function PhotoViewer({
+  photos,
+  index,
+  onIndex,
+  onClose,
+  onDelete,
+}: {
+  photos: Photo[];
+  index: number;
+  onIndex(i: number): void;
+  onClose(): void;
+  /** 없으면 보기만 — 지우기 버튼을 안 그린다 */
+  onDelete?: (id: string) => void;
+}) {
   const p = photos[index]!;
   useEffect(() => {
     // 붙잡기 단계에서 먼저 받아 preventDefault — 뒤의 날짜 팝업·일정 폼이 Esc 로 같이 닫히지 않게
@@ -328,9 +376,11 @@ function PhotoViewer({ photos, index, onIndex, onClose, onDelete }: { photos: Ph
         <a href={photoUrl(p.id)} download={`photo-${p.id.slice(0, 8)}.jpg`}>
           저장
         </a>
-        <button type="button" onClick={() => onDelete(p.id)}>
-          지우기
-        </button>
+        {onDelete && (
+          <button type="button" onClick={() => onDelete(p.id)}>
+            지우기
+          </button>
+        )}
         <button type="button" onClick={onClose}>
           닫기 ✕
         </button>

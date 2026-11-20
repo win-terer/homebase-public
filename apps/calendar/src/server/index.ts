@@ -9,88 +9,28 @@ export const calendarServer: ServerModule = {
   createApi: createCalendarApi,
 };
 
-export interface Category {
-  id: number;
-  name: string;
-  color: string;
-  hidden: boolean;
-  sort: number;
-}
+import {
+  BadRequest,
+  type Category,
+  COLORS,
+  DATE,
+  EVENT_COLUMNS,
+  type EventRow,
+  eventsIn,
+  getEvent,
+  insertEvent,
+  listCategories,
+  parseEvent,
+  photosIn,
+  TIME,
+  toEvent,
+} from "./events.ts";
+import { DONE_LIMIT, getTodo, insertTodo, listTodos, parseTodo } from "./todos.ts";
+import { presenceNames, setPresenceNames, touchPresence } from "@homebase/core/presence";
+import { setSharedCategories, sharedCategories } from "./guest.ts";
 
-export const COLORS = ["blue", "green", "red", "orange", "purple", "teal", "gray"] as const;
+export { COLORS, parseEvent, type Category };
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-class BadRequest extends Error {}
-
-const EVENT_COLUMNS = `id, category_id AS categoryId, title, start_date AS startDate, end_date AS endDate,
-  start_time AS startTime, end_time AS endTime, location, memo, repeat, repeat_until AS repeatUntil, skip_dates AS skipDates`;
-
-type EventRow = Omit<CalendarEvent, "skipDates"> & { skipDates: string };
-const toEvent = (r: EventRow): CalendarEvent => ({ ...r, skipDates: JSON.parse(r.skipDates) as string[] });
-
-/** 저장할 일정 값 검사. 틀리면 BadRequest */
-export function parseEvent(body: unknown): Omit<CalendarEvent, "id" | "skipDates"> {
-  const b = (body ?? {}) as Record<string, unknown>;
-  const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
-  const title = str(b.title, 200);
-  if (!title) throw new BadRequest("제목을 적어 주세요.");
-  const startDate = typeof b.startDate === "string" && DATE.test(b.startDate) ? b.startDate : null;
-  const endDate = b.endDate === undefined || b.endDate === null ? startDate : typeof b.endDate === "string" && DATE.test(b.endDate) ? b.endDate : null;
-  if (!startDate || !endDate) throw new BadRequest("날짜가 올바르지 않아요.");
-  if (endDate < startDate) throw new BadRequest("끝 날짜가 시작 날짜보다 앞이에요.");
-  if (daysBetween(startDate, endDate) > MAX_SPAN_DAYS) throw new BadRequest(`일정은 ${MAX_SPAN_DAYS + 1}일까지만 이어질 수 있어요.`);
-  const time = (v: unknown) => (v === null || v === undefined || v === "" ? null : typeof v === "string" && TIME.test(v) ? v : undefined);
-  const startTime = time(b.startTime);
-  const endTime = time(b.endTime);
-  if (startTime === undefined || endTime === undefined) throw new BadRequest("시각이 올바르지 않아요.");
-  if (!startTime && endTime) throw new BadRequest("시작 시각을 적어 주세요.");
-  if (startTime && endTime && startDate === endDate && endTime < startTime) throw new BadRequest("끝 시각이 시작 시각보다 앞이에요.");
-  const repeat = b.repeat === "weekly" || b.repeat === "monthly" || b.repeat === "yearly" ? b.repeat : null;
-  if (b.repeat !== undefined && b.repeat !== null && !repeat) throw new BadRequest("반복이 올바르지 않아요.");
-  const repeatUntil = repeat && typeof b.repeatUntil === "string" && DATE.test(b.repeatUntil) ? b.repeatUntil : null;
-  if (repeatUntil && repeatUntil < startDate) throw new BadRequest("반복 끝 날짜가 시작 날짜보다 앞이에요.");
-  const categoryId = typeof b.categoryId === "number" && Number.isInteger(b.categoryId) ? b.categoryId : null;
-  return { categoryId, title, startDate, endDate, startTime, endTime: startTime ? endTime : null, location: str(b.location, 200), memo: str(b.memo, 2000), repeat, repeatUntil };
-}
-
-async function getEvent(db: SqlDb, id: number): Promise<CalendarEvent | null> {
-  const row = await db.prepare(`SELECT ${EVENT_COLUMNS} FROM calendar_events WHERE id = ?`).bind(id).first<EventRow>();
-  return row ? toEvent(row) : null;
-}
-
-const insertEvent = (db: SqlDb, e: Omit<CalendarEvent, "id" | "skipDates">) =>
-  db
-    .prepare(
-      `INSERT INTO calendar_events (category_id, title, start_date, end_date, start_time, end_time, location, memo, repeat, repeat_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-    )
-    .bind(e.categoryId, e.title, e.startDate, e.endDate, e.startTime, e.endTime, e.location, e.memo, e.repeat, e.repeatUntil);
-
-async function listCategories(db: SqlDb): Promise<Category[]> {
-  const rows = await db
-    .prepare("SELECT id, name, color, hidden, sort FROM calendar_categories ORDER BY sort, id")
-    .all<{ id: number; name: string; color: string; hidden: number; sort: number }>();
-  return rows.results.map((r) => ({ ...r, hidden: r.hidden === 1 }));
-}
-
-/** [from, to] 에 보일 수 있는 일정 원본(반복은 펼치지 않음)과 카테고리. 한 번짜리는 시작일 인덱스로 from-62일 ~ to 만 */
-async function eventsIn(db: SqlDb, from: string, to: string): Promise<{ events: CalendarEvent[]; categories: Category[] }> {
-  if (!DATE.test(from) || !DATE.test(to) || to < from || daysBetween(from, to) > 400) throw new BadRequest("기간이 올바르지 않아요.");
-  const [once, repeating, categories] = await Promise.all([
-    db
-      .prepare(`SELECT ${EVENT_COLUMNS} FROM calendar_events WHERE repeat IS NULL AND start_date BETWEEN ? AND ? AND end_date >= ?`)
-      .bind(addDays(from, -MAX_SPAN_DAYS), to, from)
-      .all<EventRow>(),
-    db
-      .prepare(`SELECT ${EVENT_COLUMNS} FROM calendar_events WHERE repeat IS NOT NULL AND start_date <= ? AND (repeat_until IS NULL OR repeat_until >= ?)`)
-      .bind(to, addDays(from, -MAX_SPAN_DAYS))
-      .all<EventRow>(),
-    listCategories(db),
-  ]);
-  return { events: [...once.results, ...repeating.results].map(toEvent), categories };
-}
 
 /** 서울 날짜 (일정은 Asia/Seoul 고정) */
 const seoulToday = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
@@ -236,6 +176,49 @@ function createCalendarApi() {
     return c.json({ ok: true });
   });
 
+  /* ── 할 일 ─────────────────────────────────────────────────
+     날짜가 없는 것까지 담으려고 일정과 **표를 따로** 뒀다. 카테고리는 일정 것을 같이 쓰므로
+     '함께 보기' 를 켠 카테고리면 할 일도 동거인에게 열린다 (guest.ts). */
+
+  api.get("/todos", async (c) => {
+    const [open, done, categories] = await Promise.all([listTodos(c.env.DB, false), listTodos(c.env.DB, true), listCategories(c.env.DB)]);
+    return c.json({ open, done, categories, doneLimit: DONE_LIMIT, today: seoulToday() });
+  });
+
+  api.post("/todos", async (c) => {
+    const t = parseTodo(await c.req.json(), seoulToday());
+    const row = await insertTodo(c.env.DB, t).first<{ id: number }>();
+    return c.json(await getTodo(c.env.DB, row!.id), 201);
+  });
+
+  api.put("/todos/:id", async (c) => {
+    const id = idParam(c.req.param("id"));
+    const t = parseTodo(await c.req.json(), seoulToday());
+    const res = await c.env.DB.prepare("UPDATE calendar_todos SET category_id = ?, title = ?, memo = ?, due_kind = ?, due_date = ? WHERE id = ?")
+      .bind(t.categoryId, t.title, t.memo, t.dueKind, t.dueDate, id)
+      .run();
+    if (!res.meta.changes) return c.json({ error: "할 일이 없어요." }, 404);
+    return c.json(await getTodo(c.env.DB, id));
+  });
+
+  /** 체크 / 체크 풀기. **지우지 않는다** — 잘못 눌렀을 때 되돌려야 한다 */
+  api.post("/todos/:id/done", async (c) => {
+    const id = idParam(c.req.param("id"));
+    const body = (await c.req.json()) as { done?: unknown };
+    const res = await c.env.DB.prepare(`UPDATE calendar_todos SET done_at = ${body.done === false ? "NULL" : "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"} WHERE id = ?`)
+      .bind(id)
+      .run();
+    if (!res.meta.changes) return c.json({ error: "할 일이 없어요." }, 404);
+    return c.json(await getTodo(c.env.DB, id));
+  });
+
+  api.delete("/todos/:id", async (c) => {
+    const id = idParam(c.req.param("id"));
+    await c.env.DB.prepare("DELETE FROM calendar_todos WHERE id = ?").bind(id).run();
+    await dropPhotos(c.env.DB, c.env.PHOTOS, "todo", [id]); // 붙인 사진도 같이
+    return c.json({ ok: true });
+  });
+
   /** 가져오기 미리보기용: 이미 가져온 일정의 원래 ID들 */
   api.get("/import/uids", async (c) => {
     const rows = await c.env.DB.prepare("SELECT source_uid AS uid FROM calendar_events WHERE source_uid IS NOT NULL").all<{ uid: string }>();
@@ -283,6 +266,48 @@ function createCalendarApi() {
     return c.json({ inserted: res.meta.changes ?? 0, duplicates: rows.length - (res.meta.changes ?? 0), categories: await listCategories(c.env.DB) });
   });
 
+  /** 그 달 일정에 붙은 사진 모아 보기 */
+  api.get("/photos", async (c) => c.json({ photos: await photosIn(c.env.DB, c.req.query("from") ?? "", c.req.query("to") ?? "") }));
+
+  /**
+   * 지금 누가 보고 있나. 1분마다 온다 — **데이터 버전을 올리지 않는다**(skipRevBump).
+   * 올리면 1분마다 화면 캐시가 통째로 깨져서, 느려지지 않으려고 만든 3층 캐시가 무너진다.
+   */
+  api.post("/presence", async (c) => {
+    c.set("skipRevBump", true);
+    return c.json(await touchPresence(c.env.DB, "owner"));
+  });
+
+  /* ── 동거인과 함께 보기 ───────────────────────────────────────
+   * 카테고리 **하나**만 연다. 켜면 그 카테고리 일정이 손님에게 보이고 손님도 적을 수 있다
+   * (apps/calendar/src/server/guest.ts). 끄면 그 자리에서 닫힌다. */
+
+  api.get("/guest", async (c) => c.json({ categories: await sharedCategories(c.env.DB), names: await presenceNames(c.env.DB) }));
+
+  /** 서로를 뭐라고 부를지 (접속 표시에 쓴다). 이름은 **설정에만** 둔다 */
+  api.put("/names", async (c) => {
+    const body = (await c.req.json()) as { owner?: unknown; guest?: unknown };
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    await setPresenceNames(c.env.DB, { owner: str(body.owner), guest: str(body.guest) });
+    return c.json({ names: await presenceNames(c.env.DB) });
+  });
+
+  api.put("/guest", async (c) => {
+    const body = (await c.req.json()) as { categoryIds?: unknown };
+    if (!Array.isArray(body.categoryIds)) throw new BadRequest("함께 볼 카테고리를 보내 주세요.");
+    const wanted = [...new Set(body.categoryIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+    if (wanted.length > 20) throw new BadRequest("너무 많아요.");
+    if (wanted.length) {
+      // 없는 카테고리를 넣어 두면 지운 번호를 새 카테고리가 물려받아 저절로 열린다
+      const rows = await c.env.DB.prepare(`SELECT id FROM calendar_categories WHERE id IN (${wanted.map(() => "?").join(", ")})`)
+        .bind(...wanted)
+        .all<{ id: number }>();
+      if (rows.results.length !== wanted.length) return c.json({ error: "없는 카테고리가 섞여 있어요." }, 404);
+    }
+    await setSharedCategories(c.env.DB, wanted);
+    return c.json({ categories: await sharedCategories(c.env.DB) });
+  });
+
   api.post("/categories", async (c) => {
     const b = (await c.req.json()) as Record<string, unknown>;
     const name = typeof b.name === "string" ? b.name.trim().slice(0, 30) : "";
@@ -315,6 +340,10 @@ function createCalendarApi() {
       c.env.DB.prepare("UPDATE calendar_events SET category_id = NULL WHERE category_id = ?").bind(id),
       c.env.DB.prepare("DELETE FROM calendar_categories WHERE id = ?").bind(id),
     ]);
+    // 함께 보던 카테고리였다면 공유 목록에서도 뺀다. 남겨 두면 **지운 id 를 새 카테고리가
+    // 물려받아** 만들자마자 동거인에게 열린다 (SQLite 는 지운 번호를 다시 쓴다).
+    const still = await sharedCategories(c.env.DB);
+    await setSharedCategories(c.env.DB, still.map((x) => x.id).filter((x) => x !== id));
     return c.json(await listCategories(c.env.DB));
   });
 

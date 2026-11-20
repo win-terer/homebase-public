@@ -4,12 +4,16 @@
   "type": "module",
   "exports": {
     "./server": "./src/server/index.ts",
-    "./web": "./src/web/index.ts"
+    "./web": "./src/web/index.ts",
+    "./server/guest": "./src/server/guest.ts",
+    "./web/root": "./src/web/CalendarRoot.tsx",
+    "./web/api": "./src/web/api.ts"
   },
   "dependencies": {
     "@homebase/core": "workspace:*",
     "@homebase/db": "workspace:*",
     "@homebase/ledger": "workspace:*",
+    "@homebase/ui": "workspace:*",
     "fflate": "^0.8.3",
     "hono": "^4.13.0",
     "react-router": "^8.4.0"

@@ -11,7 +11,9 @@ React Router · Vitest(테스트 DB 는 better-sqlite3 어댑터).
 ```
 host/src/worker  워커 입구: 로그인(auth.ts) → /api/<앱> → 화면 파일
 host/src/web     SPA 셸
-apps/calendar/   일정. src/shared/occurrences.ts = 반복·여러 날 펼치기(서버·화면 공용)
+apps/calendar/   일정 · 할 일 · 사진 모아 보기 · 함께 보기(손님)
+                 src/shared/occurrences.ts = 반복·여러 날 펼치기(서버·화면 공용)
+                 src/server/guest.ts       = 손님에게 열리는 **전부** (아래 '보안 모델')
 apps/ledger/     가계부 + 달력. src/importers = 파일 읽기(브라우저) + 기본 판단(서버)
 shared/core      앱↔host 계약 (ServerModule), 사진, 브라우저 캐시, 비밀값 봉하기
 shared/db        DB 계약 SqlDb(D1 모양) + 테스트용 better-sqlite3 어댑터
@@ -70,7 +72,17 @@ pnpm deploy      # Workers Builds 가 main 에서 실행한다 (배포 → 원�
 
 ## 보안 모델
 
-- **혼자 쓴다.** 사용자 표가 없고, 비밀번호 하나 + OTP 하나다. 남과 같이 쓰려면 구조를 바꿔야 한다
+- **주인은 한 사람이다.** 사용자 표가 없고, 비밀번호 하나 + OTP 하나다. 여러 사람이 각자
+  자기 것을 갖는 구조로 바꾸려면 설계를 통째로 다시 해야 한다
+- **손님(함께 보기)은 예외가 아니라 별도의 좁은 길이다.** 일정 몇 카테고리를 남과 나눠 볼 수
+  있는데, 기존 API 에 '손님이면 거르기' 를 끼워 넣지 **않았다**. 그렇게 하면 라우트를 더할
+  때마다 거르기를 같이 적어야 하고 **한 번 빠뜨리면 통째로 샌다.** 대신
+  - 손님 세션은 **표가 다르다**(`auth_guest_sessions`). 한 표에 역할 칸으로 섞으면 조건 하나를
+    빠뜨릴 때 주인 자리까지 열린다
+  - 손님이 닿는 경로는 `auth.ts` 의 `guestAllowed` 에 못 박혀 있다(`/guest`·`/api/guest/*`)
+  - `server/guest.ts` 의 모든 쿼리가 공유 카테고리를 **`WHERE` 에 박는다.** 읽어 와서 JS 로
+    거르지 않는다 — 화면이 실수해도 404 로 떨어진다
+  - 공유 카테고리가 하나도 없으면 손님 로그인 화면 자체가 404 다. **닫힘이 기본이다**
 - 비밀번호는 워커 Secret `LOGIN_PASSWORD`, OTP 비밀은 첫 `/setup` 에서 만들어 D1 에 저장.
   세션 쿠키는 무작위 토큰이고 **D1 에는 해시만** 둔다
 - **키로 열리는 경로는 못 박아 둔다**(`auth.ts` 의 `IMPORT_PATHS`·`NOTIFY_PATHS`). 키 하나가
@@ -94,6 +106,9 @@ pnpm deploy      # Workers Builds 가 main 에서 실행한다 (배포 → 원�
 - **화면에서만 묶는 것들**: 쪼개져 들어온 결제(`split-pay.ts`)와 취소 짝(`pairCancels`)은 DB 를
   건드리지 않고 화면에서 묶는다. 소스가 다시 그 모양으로 주기 때문이다. 묶는 순서는
   `mergeSplits` → `pairCancels` (합쳐 두면 쪼개져 들어온 환불도 금액이 맞아 저절로 묶인다)
+- **Workers Static Assets 는 `.html` 요청을 301 로 되돌린다**(`html_handling` 기본값). 워커가
+  `ASSETS.fetch("/guest.html")` 처럼 부르면 브라우저가 `/guest` 를 다시 청해 **끝없이 돈다.**
+  화면 파일은 `guest/index.html` 처럼 폴더로 두고 `/guest/` 로 청한다
 - **알림 파서는 모르면 `null`**(`notify-parse.ts`). 광고·잔액 안내가 훨씬 많아서, 틀린 거래가
   들어가는 게 빈 화면보다 나쁘다
 

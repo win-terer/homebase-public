@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { SqlDb } from "@homebase/db";
-import { dropPhotos, isPhotoApp, movePhotos, PHOTO_APPS, PHOTO_MAX, photoKey, type PhotoKV } from "@homebase/core/photos";
+import { dropPhotos, isPhotoApp, movePhotos, PHOTO_APPS, PHOTO_MAX, photoKey, savePhoto, type PhotoKV } from "@homebase/core/photos";
 
 /**
  * 사진 첨부 API (/api/photos) — 일정·가계부 거래 공용. 저장 방식은 @homebase/core/photos 참고.
@@ -15,14 +15,6 @@ import { dropPhotos, isPhotoApp, movePhotos, PHOTO_APPS, PHOTO_MAX, photoKey, ty
  * - `POST /drop`              'lost:…' 로 남겨 둔 사진 버리기 { app, ref } ('옮기지 못한 메모' 지우기)
  */
 type Env = { Bindings: { DB: SqlDb; PHOTOS?: PhotoKV } };
-
-const FULL_MAX = 1536 * 1024; // 긴 변 1600px JPEG 는 보통 200~500KB. 넉넉히 1.5MB
-const THUMB_MAX = 200 * 1024;
-const isJpeg = (b: ArrayBuffer) => {
-  const u = new Uint8Array(b, 0, Math.min(3, b.byteLength));
-  return u[0] === 0xff && u[1] === 0xd8 && u[2] === 0xff;
-};
-const newId = () => crypto.randomUUID().replace(/-/g, "");
 
 /** 사진 바이트 — ETag 미들웨어 앞에 붙인다 */
 export function photoFileRoute() {
@@ -71,23 +63,15 @@ export function photoRoutes() {
     if (!isPhotoApp(app) || !/^\d{1,15}$/.test(ref)) return c.json({ error: "어디에 붙일지 알 수 없어요" }, 400);
     if (!(full instanceof File) || !(thumb instanceof File)) return c.json({ error: "사진이 비어 있어요" }, 400);
     const [fb, tb] = await Promise.all([full.arrayBuffer(), thumb.arrayBuffer()]);
-    if (fb.byteLength > FULL_MAX || tb.byteLength > THUMB_MAX) return c.json({ error: "사진이 너무 커요" }, 413);
-    if (!isJpeg(fb) || !isJpeg(tb)) return c.json({ error: "JPEG 로 줄인 사진만 받아요" }, 415);
     const exists = await c.env.DB.prepare(`SELECT id FROM ${PHOTO_APPS[app]} WHERE id = ?`).bind(Number(ref)).first();
     if (!exists) return c.json({ error: "붙일 항목을 찾을 수 없어요 (지워졌을 수 있어요)" }, 404);
-    const have = await c.env.DB.prepare("SELECT count(*) AS n FROM core_photos WHERE app = ? AND ref = ?").bind(app, ref).first<{ n: number }>();
-    if ((have?.n ?? 0) >= PHOTO_MAX) return c.json({ error: `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요` }, 409);
     const dim = (k: string) => {
       const n = Number(form.get(k));
       return Number.isInteger(n) && n > 0 && n <= 10000 ? n : null;
     };
-    const id = newId();
-    // 바이트를 먼저 넣고 줄을 쓴다 — 줄이 있는데 바이트가 없는 상태(깨진 썸네일)를 만들지 않는다
-    await Promise.all([c.env.PHOTOS.put(photoKey(id), fb, { metadata: { app, ref } }), c.env.PHOTOS.put(photoKey(id, true), tb, { metadata: { app, ref } })]);
-    await c.env.DB.prepare("INSERT INTO core_photos (id, app, ref, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(id, app, ref, fb.byteLength + tb.byteLength, dim("w"), dim("h"))
-      .run();
-    return c.json({ id });
+    const saved = await savePhoto(c.env.DB, c.env.PHOTOS, app, ref, fb, tb, { w: dim("w"), h: dim("h") });
+    if ("error" in saved) return c.json({ error: saved.error }, saved.status);
+    return c.json({ id: saved.id });
   });
 
   api.delete("/:id", async (c) => {

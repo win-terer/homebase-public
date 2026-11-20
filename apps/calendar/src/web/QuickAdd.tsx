@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { categoryFromTitle } from "../shared/auto-category.ts";
 import { parseQuickTime } from "../shared/quick-time.ts";
 import type { Category, EventInput } from "./api.ts";
 
@@ -24,14 +25,15 @@ export function QuickAdd({
   onDetail(seed: { title: string; startTime: string | null; endTime: string | null }): void;
 }) {
   const [text, setText] = useState("");
-  // 고르기 전에는 첫 카테고리 — 처음 상태로 박아 두면 목록이 늦게 와 '분류 없음' 으로 굳는다
-  // (`?date=` 로 바로 열면 실제로 그렇게 됐다)
+  // 고르기 전에는 제목에서 짐작하고, 걸리는 게 없으면 첫 카테고리 — 처음 상태로 박아 두면 목록이
+  // 늦게 와 '분류 없음' 으로 굳는다 (`?date=` 로 바로 열면 실제로 그렇게 됐다)
   const [picked, setPicked] = useState<number | null | undefined>(undefined);
-  const categoryId = picked === undefined ? (categories[0]?.id ?? null) : picked;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const parsed = parseQuickTime(text);
+  const guessed = categoryFromTitle(parsed.title, categories);
+  const categoryId = picked === undefined ? (guessed ?? categories[0]?.id ?? null) : picked;
   const ready = parsed.title.length > 0 && !busy;
 
   async function submit(e: React.FormEvent) {
@@ -76,15 +78,32 @@ export function QuickAdd({
           추가
         </button>
       </div>
+      {/* 분류는 몇 개뿐이라 **칩을 나란히** 놓고 누르게 한다 (사용자 요청 2026-11-19).
+          펼쳐야 보이는 셀렉트보다 지금 무엇으로 들어갈지가 한눈에 보인다 */}
       <div className="cal-quick-row">
-        <select className="cal-quick-cat" value={categoryId ?? ""} onChange={(e) => setPicked(e.target.value ? Number(e.target.value) : null)} aria-label="카테고리">
-          <option value="">분류 없음</option>
+        <div className="cal-cat-pick" role="group" aria-label="분류">
           {categories.map((c) => (
-            <option key={c.id} value={c.id}>
+            <button
+              key={c.id}
+              type="button"
+              className={`cal-chip hb-c-${c.color} ${categoryId === c.id ? "is-picked" : ""}`}
+              aria-pressed={categoryId === c.id}
+              onClick={() => setPicked(picked === c.id ? null : c.id)}
+            >
+              <span className="cal-dot" aria-hidden="true" />
               {c.name}
-            </option>
+            </button>
           ))}
-        </select>
+          <button
+            type="button"
+            className={`cal-chip is-none ${categoryId === null ? "is-picked" : ""}`}
+            aria-pressed={categoryId === null}
+            onClick={() => setPicked(null)}
+          >
+            <span className="cal-dot" aria-hidden="true" />
+            없음
+          </button>
+        </div>
         <button type="button" className="lg-text-button cal-quick-more" onClick={() => onDetail(parsed)}>
           자세히
         </button>
@@ -93,6 +112,8 @@ export function QuickAdd({
           (`9시 · 9:…`) 예시가 예시 구실을 못 했다 (사용자 지적 2026-10-06) */}
       <p className={`cal-quick-read ${text.trim() ? "is-read" : ""}`}>
         {text.trim() ? reading(parsed) : "시각을 같이 적으면 떼어 내요 — 9시 · 9:30 · 오후 7시 · 9~11시"}
+        {/* 분류가 제목에서 저절로 골라졌으면 그렇다고 말해 준다 — 모르고 지나가면 틀려도 안 보인다 */}
+        {picked === undefined && guessed !== null && text.trim() ? <span className="cal-quick-auto"> · 분류는 제목에서 골랐어요</span> : null}
       </p>
       {error && <p className="hb-error">{error}</p>}
     </form>

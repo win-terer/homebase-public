@@ -22,6 +22,8 @@ export interface CalendarEvent {
   repeatUntil: string | null;
   /** 반복 중 뺀 날짜들 (그 회차의 시작일) */
   skipDates: string[];
+  /** 만든 시각 (ISO). **방금 적은 일정은 바로 고치게** 열어 주는 데 쓴다 (CalendarRoot) */
+  createdAt?: string;
 }
 
 export interface Occurrence {

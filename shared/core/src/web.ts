@@ -9,4 +9,9 @@ export interface WebModule {
   path: string;
   /** path 아래 모든 경로를 담당하는 루트 컴포넌트 (내부 라우팅은 앱이 처리) */
   Root: ComponentType;
+  /**
+   * 이 앱 안쪽 화면 중 **헤더에 나란히 둘** 것. 예: 일정 › 사진.
+   * 화면 안 버튼으로 두면 거기까지 들어가야 보인다 (사용자 요청 2026-11-20).
+   */
+  tabs?: { path: string; title: string }[];
 }

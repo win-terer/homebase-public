@@ -12,7 +12,7 @@ import type { SqlDb } from "@homebase/db";
  */
 export const PHOTO_MAX = 3;
 /** 사진이 붙는 앱과 그 항목 표 (항목이 있는지 확인할 때 쓴다) */
-export const PHOTO_APPS = { calendar: "calendar_events", ledger: "ledger_transactions" } as const;
+export const PHOTO_APPS = { calendar: "calendar_events", ledger: "ledger_transactions", todo: "calendar_todos" } as const;
 export type PhotoApp = keyof typeof PHOTO_APPS;
 export const isPhotoApp = (v: unknown): v is PhotoApp => typeof v === "string" && Object.hasOwn(PHOTO_APPS, v);
 
@@ -24,6 +24,49 @@ export interface PhotoKV {
 }
 
 export const photoKey = (id: string, thumb = false) => `p/${id}${thumb ? "_t" : ""}`;
+
+/** 올라오는 사진 크기 한도. 긴 변 1600px JPEG 는 보통 200~500KB 라 넉넉하다 */
+export const PHOTO_FULL_MAX = 1536 * 1024;
+export const PHOTO_THUMB_MAX = 200 * 1024;
+
+/** JPEG 인가 (브라우저가 줄여서 보낸 것만 받는다 — 원본 HEIC/PNG 는 EXIF·용량 때문에 안 받는다) */
+export const isJpeg = (b: ArrayBuffer): boolean => {
+  const u = new Uint8Array(b, 0, Math.min(3, b.byteLength));
+  return u[0] === 0xff && u[1] === 0xd8 && u[2] === 0xff;
+};
+
+/** 항목에 붙은 사진 수 */
+export const countPhotos = async (db: SqlDb, app: PhotoApp, ref: string): Promise<number> =>
+  (await db.prepare("SELECT count(*) AS n FROM core_photos WHERE app = ? AND ref = ?").bind(app, ref).first<{ n: number }>())?.n ?? 0;
+
+/**
+ * 올라온 사진 한 장을 저장한다 (host 의 /api/photos 와 손님 API 가 함께 쓴다 — 규칙이 갈라지지 않게).
+ *
+ * **붙일 항목이 있는지는 부르는 쪽이 먼저 본다** — 손님은 '공유 카테고리 일정인가' 까지 따져야 해서
+ * 조건이 다르다. 여기서는 크기·형식·장수만 본다.
+ *
+ * 바이트를 먼저 넣고 줄을 쓴다 — 줄은 있는데 바이트가 없는 상태(깨진 썸네일)를 만들지 않는다.
+ */
+export async function savePhoto(
+  db: SqlDb,
+  kv: PhotoKV,
+  app: PhotoApp,
+  ref: string,
+  full: ArrayBuffer,
+  thumb: ArrayBuffer,
+  size: { w: number | null; h: number | null },
+): Promise<{ id: string } | { error: string; status: 409 | 413 | 415 }> {
+  if (full.byteLength > PHOTO_FULL_MAX || thumb.byteLength > PHOTO_THUMB_MAX) return { error: "사진이 너무 커요", status: 413 };
+  if (!isJpeg(full) || !isJpeg(thumb)) return { error: "JPEG 로 줄인 사진만 받아요", status: 415 };
+  if ((await countPhotos(db, app, ref)) >= PHOTO_MAX) return { error: `사진은 ${PHOTO_MAX}장까지 붙일 수 있어요`, status: 409 };
+  const id = crypto.randomUUID().replace(/-/g, "");
+  await Promise.all([kv.put(photoKey(id), full, { metadata: { app, ref } }), kv.put(photoKey(id, true), thumb, { metadata: { app, ref } })]);
+  await db
+    .prepare("INSERT INTO core_photos (id, app, ref, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(id, app, ref, full.byteLength + thumb.byteLength, size.w, size.h)
+    .run();
+  return { id };
+}
 
 const missingTable = (e: unknown) => /no such table/i.test(String((e as Error)?.message ?? e));
 

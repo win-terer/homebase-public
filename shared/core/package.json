@@ -8,7 +8,8 @@
     "./web-cache": "./src/web-cache.ts",
     "./photos": "./src/photos.ts",
     "./photos-web": "./src/photos-web.tsx",
-    "./secrets": "./src/secrets.ts"
+    "./secrets": "./src/secrets.ts",
+    "./presence": "./src/presence.ts"
   },
   "dependencies": {
     "@homebase/db": "workspace:*",

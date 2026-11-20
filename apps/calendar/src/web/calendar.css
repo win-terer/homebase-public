@@ -48,6 +48,18 @@
   cursor: pointer;
 }
 
+/* 설정 — 그림 하나뿐이라 동그랗게 */
+.cal-gear {
+  justify-content: center;
+  width: 30px;
+  padding: 4px 0;
+  color: var(--hb-muted);
+}
+
+.cal-gear:hover {
+  color: var(--hb-fg);
+}
+
 .cal-tool:hover {
   background: var(--hb-hover);
 }
@@ -218,31 +230,16 @@
   flex: none;
 }
 
-/* 분류칸 — 기본 select 모양이 혼자 튀어서(운영체제 위젯) 입력칸과 같은 결로 맞춘다.
-   화살표는 직접 그린다: 가운데 회색이라 밝은 화면·어두운 화면 둘 다에서 읽힌다 */
-.cal-quick-cat {
-  flex: none;
-  max-width: 12em;
-  height: 32px;
-  box-sizing: border-box;
-  padding: 0 28px 0 10px;
-  border: 1px solid var(--hb-border);
-  border-radius: 8px;
-  background-color: var(--hb-surface);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  -webkit-appearance: none;
-  appearance: none;
-  color: var(--hb-fg);
-  font: inherit;
-  font-size: 13px;
+/* 분류를 안 고른 칩에는 색 점이 없다 */
+.cal-chip.is-none .cal-dot {
+  display: none;
 }
 
-.cal-quick-cat:focus {
-  outline: none;
-  border-color: var(--hb-accent);
+/* 제목에서 저절로 골랐다는 알림 — 읽은 결과 줄 끝에 조용히 */
+.cal-quick-auto {
+  color: var(--hb-subtle);
 }
+
 
 /* [자세히] 는 오른쪽 끝으로 */
 .cal-quick-more {
@@ -784,4 +781,469 @@ a.lg-text-button {
 .cal-search-when {
   color: var(--hb-accent);
   font-size: 11px;
+}
+
+/* 함께 보기 — 켜 둔 카테고리는 글자만으로 바로 보이게 (버튼 하나로 켜고 끈다) */
+.cal-share {
+  flex: none;
+  white-space: nowrap;
+  color: var(--hb-subtle);
+}
+
+.cal-share.is-on {
+  color: var(--hb-accent);
+  font-weight: 600;
+}
+
+.cal-share-note {
+  margin: 12px 0 0;
+  color: var(--hb-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 일정 보기 — 누르면 수정 폼 대신 이게 먼저 뜬다 (고치려면 [수정] 을 한 번 더) */
+.cal-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cal-view-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.cal-view-cat {
+  align-self: flex-start;
+  cursor: default;
+}
+
+.cal-view-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.cal-view-list dt {
+  color: var(--hb-subtle);
+  font-size: 13px;
+}
+
+.cal-view-list dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* 메모는 적은 그대로 — 줄바꿈을 살린다 */
+.cal-view-memo {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--hb-page);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.cal-view-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+/* 지금 상대가 보고 있는지 — 1분마다 확인한 값이라 '최대 1분 늦다' */
+/* 동거인에게 보낼 주소 + 복사 버튼 */
+.cal-share-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cal-share-link .cal-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.cal-presence {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-right: 4px;
+  color: var(--hb-subtle);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 헤더 자리(HeaderSlot)에서는 긴 이름이 와도 헤더를 밀지 않게 잘라 둔다 */
+.hb-header-slot .cal-presence {
+  min-width: 0;
+  margin-right: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: 20px;
+}
+
+.hb-header-slot .cal-presence i {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.cal-presence i {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--hb-subtle);
+  border-radius: 50%;
+}
+
+/* 보는 중이면 초록 점 — 글자보다 점이 먼저 눈에 들어온다 */
+.cal-presence.is-on {
+  color: var(--hb-fg);
+}
+
+.cal-presence.is-on i {
+  border-color: var(--hb-cat-green);
+  background: var(--hb-cat-green);
+}
+
+/* 사진 모아 보기 — 썸네일(320px)만 깔고, 누르면 그때 원본을 받는다 */
+.cal-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.cal-photo-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-photo-cell img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  background: var(--hb-surface);
+  object-fit: cover;
+}
+
+.cal-photo-cap {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  overflow: hidden;
+  color: var(--hb-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cal-photo-cap b {
+  flex: none;
+  color: var(--hb-fg);
+  font-weight: 600;
+}
+
+/* 크게 보기 — 아무 데나 누르면 닫힌다 */
+.cal-photo-full {
+  position: fixed;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 82%);
+  inset: 0;
+}
+
+.cal-photo-full img {
+  max-width: 100%;
+  max-height: calc(100vh - 110px);
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.cal-photo-full p {
+  margin: 0;
+  color: #fff;
+  font-size: 13px;
+}
+
+/* 서로를 뭐라고 부를지 — 접속 표시가 쓴다 */
+.cal-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 14px;
+}
+
+.cal-names label {
+  display: flex;
+  flex: 1 1 160px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cal-names span {
+  color: var(--hb-subtle);
+  font-size: 12px;
+}
+
+/* 폰 헤더에는 이름까지 놓을 자리가 없다 — 점만 남기고 이름은 설명(title)에 둔다.
+   위의 기본 모양보다 **뒤에** 와야 덮는다 (같은 무게라 순서가 이긴다) */
+@media (max-width: 700px) {
+  .hb-header-slot .cal-presence {
+    font-size: 0;
+  }
+  .hb-header-slot .cal-presence i {
+    margin-right: 0;
+  }
+}
+
+/* ── 할 일 ─────────────────────────────────────────────────────
+   날짜가 없는 것까지 담는 목록. 한 줄을 누르면 그 자리에서 펼쳐진다 */
+.cal-todos {
+  /* 가운데로, 그리고 **넓게** — 좁게 잡아 왼쪽에 붙여 뒀더니 오른쪽이 통째로 비었다
+     (사용자 지적 2026-11-20) */
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* 제목 · 카테고리 칩 · [+ 할 일] 한 줄. 칩은 '보기' 고 버튼은 '하기' 라 끝으로 떼어 놓는다 */
+.cal-todo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.cal-todo-bar h1 {
+  margin: 0 4px 0 0;
+}
+
+/* 제목 옆 동그란 ＋ — 글자 버튼으로 두면 제목보다 커 보인다 */
+.cal-todo-new {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 17px;
+  line-height: 1;
+}
+
+/* 칩은 오른쪽 끝으로 (달력 툴바와 같은 자리) */
+.cal-todo-bar .cal-filters {
+  margin-left: auto;
+}
+
+/* 목록은 **한 판 위에** 올린다. 줄과 구분선만 떠 있으면 빈 화면에 금 몇 개 그은 꼴이 된다.
+   `overflow: hidden` 이 핵심이다 — 펼친 줄의 배경이 판 폭을 꽉 채우는데, 이게 없으면
+   첫 줄·마지막 줄에서 **각진 채 둥근 모서리 밖으로 삐져나온다** (사용자 지적 2026-11-20) */
+.cal-todo-card {
+  padding: 0 16px;
+  overflow: hidden;
+  border: 1px solid var(--hb-border);
+  border-radius: var(--hb-radius-lg);
+  background: var(--hb-surface);
+}
+
+/* 끝낸 것 — 판 밖 아래에 따로 */
+.cal-todo-done {
+  margin-top: 18px;
+}
+
+.cal-todo-add {
+  margin-bottom: 18px;
+}
+
+/* 기한 칩은 색이 없다 — 카테고리 칩과 섞이지 않게 테두리만 */
+.cal-chip.is-due::before {
+  content: none;
+}
+
+.cal-todo-date {
+  width: auto;
+  font-size: 13px;
+}
+
+.cal-todo-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cal-todo {
+  border-bottom: 1px solid var(--hb-border);
+}
+
+/* 판 안의 마지막 줄은 선을 긋지 않는다 (판 테두리와 겹쳐 두 줄로 보인다) */
+.cal-todo-list > .cal-todo:last-child {
+  border-bottom: 0;
+}
+
+.cal-todo-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+/* 펼친 줄은 배경을 살짝 줘서 어디까지가 그 줄인지 보이게 (판 밖으로 넘치게 늘려 붙인다) */
+.cal-todo.is-open {
+  margin: 0 -16px;
+  padding: 0 16px;
+  background: var(--hb-hover);
+}
+
+.cal-todo-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--hb-accent);
+  cursor: pointer;
+}
+
+.cal-todo-title {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-todo-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 체크한 순간 바로 취소선 — 목록이 다시 오기 전에도 눌린 게 보여야 한다 */
+.cal-todo.is-done .cal-todo-text,
+.cal-todo.is-checking .cal-todo-text {
+  color: var(--hb-muted);
+  text-decoration: line-through;
+}
+
+/* 오래 묵은 '언젠가' — 지우지는 않고 흐리게만 */
+.cal-todo.is-stale .cal-todo-title {
+  opacity: 0.55;
+}
+
+.cal-todo-due {
+  flex: none;
+  width: 86px;
+  margin-left: auto;
+  color: var(--hb-subtle);
+  font-size: 12px;
+  text-align: right;
+}
+
+.cal-todo-due.is-over {
+  color: var(--hb-cat-red, #f87171);
+}
+
+.cal-chip.is-tag {
+  flex: none;
+  padding: 1px 9px;
+  font-size: 12px;
+}
+
+.cal-todo-fold {
+  /* 묶음마다 제 줄을 쓴다 — inline 으로 두면 '언젠가'·'끝낸 것' 이 한 줄에 붙어 버린다 */
+  display: block;
+  width: calc(100% + 32px);
+  margin: 0 -16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hb-border);
+  text-align: left;
+  letter-spacing: 0.02em;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 판 밖(끝낸 것)에 선 머리말 — 넘겨 늘리지도, 선을 긋지도 않는다 */
+.cal-todo-fold.is-loose {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 4px 2px;
+  border-top: 0;
+}
+
+.cal-todo-fold:hover {
+  color: var(--hb-fg);
+}
+
+.cal-todo-dialog {
+  width: min(520px, 100%);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+}
+
+/* 주 버튼(저장)이 조금 더 크다 — 가운데로 맞춰야 줄이 어긋나 보이지 않는다 */
+.cal-todo-dialog .lg-dialog-end {
+  align-items: center;
+}
+
+/* 펼친 속 — 적힌 내용과 사진을 **보는** 자리. 고치는 건 [수정] 으로 모달에서 */
+.cal-todo-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 0 14px 28px;
+}
+
+.cal-todo-memo-view {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.cal-todo-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* 고치기 화면의 단추는 일정 폼과 같은 `.cal-actions` 를 쓴다 (저장·취소 … 삭제) */
+.cal-todo-dialog .cal-actions {
+  margin-top: 2px;
+}
+
+/* 삭제는 [수정] 에서 멀리 오른쪽 끝에 (`.cal-delete` 의 margin-left: auto 가 민다) */
+
+.cal-todo-memo {
+  resize: vertical;
+}
+
+.cal-todo-empty {
+  padding: 18px 0;
 }

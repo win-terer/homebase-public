@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Link, Route, Routes, useSearchParams } from "react-router";
+import { Link, Route, Routes, useNavigate, useSearchParams } from "react-router";
+import { HeaderSlot, useContextMenu } from "@homebase/ui";
 import { amountView, ledgerApi, withSavedMemo, won, type CategoryOption, type Transaction } from "@homebase/ledger/web/api.ts";
 import { useCellTip, type TipContent } from "@homebase/ledger/web/CellTip.tsx";
 import { TxRow } from "@homebase/ledger/web/DayPanel.tsx";
@@ -14,9 +15,13 @@ import { DayPopover } from "@homebase/ledger/web/DayPopover.tsx";
 import { plannedByDate, type Planned, type RecurringItem } from "@homebase/ledger/web/recurring.ts";
 import "@homebase/ledger/web/ledger.css";
 import { addDays, daysBetween, expandEvents, repeatLabel, timeLabel, type CalendarEvent, type Occurrence } from "../shared/occurrences.ts";
-import { calendarApi, type Category, type EventInput } from "./api.ts";
+import { calendarApi, forgetCached, type Category, type EventInput } from "./api.ts";
 import { CategoryEditor } from "./CategoryEditor.tsx";
-import { EventForm, type SaveScope, type Seed } from "./EventForm.tsx";
+import { EventForm, EventView, type SaveScope, type Seed } from "./EventForm.tsx";
+import { PresenceDot, usePresence } from "./presence.tsx";
+import { PhotosPage } from "./PhotosPage.tsx";
+import { TodoPage } from "./TodoPage.tsx";
+import { readGuestHidden, writeGuestHidden } from "./hidden.ts";
 import { QuickAdd } from "./QuickAdd.tsx";
 import { ImportPage } from "./ImportPage.tsx";
 import { CalendarSearchBox, CalendarSearchPage } from "./SearchPage.tsx";
@@ -50,7 +55,19 @@ function useShowMoney(): [boolean, (v: boolean) => void] {
   ];
 }
 
-type Side = { mode: "day" } | { mode: "new"; seed?: Seed } | { mode: "edit"; occurrence: Occurrence } | { mode: "categories" };
+type Side =
+  | { mode: "day" }
+  | { mode: "new"; seed?: Seed }
+  | { mode: "view"; occurrence: Occurrence }
+  | { mode: "edit"; occurrence: Occurrence }
+  | { mode: "categories" };
+
+/**
+ * 이 안에 만든 일정은 누르면 **바로 수정**으로 열린다. 그보다 오래된 것은 보기로 연다 —
+ * 고치려고 누르는 것보다 그냥 보려고 누르는 일이 많다(2026-11-19 사용자 지적).
+ * 적자마자 다시 눌렀다면 덜 적었거나 잘못 적은 것이다.
+ */
+const RECENT_MS = 10 * 60_000;
 
 /**
  * 일정: 월 달력(일정 + 그날 쓴 돈 + 정기 결제 예정) + 누른 날의 상세·추가·수정.
@@ -59,20 +76,39 @@ type Side = { mode: "day" } | { mode: "new"; seed?: Seed } | { mode: "edit"; occ
  * 열어 두던 것을 바꾼 이유: 달력이 폭을 다 쓰고, 날짜를 누르자마자 **한 줄 추가**에 바로
  * 칠 수 있다(사용자 요청). 좁은 화면은 그대로 달력 아래 패널.
  */
-export function CalendarRoot() {
+/**
+ * `guest` 면 **동거인 화면**이다. 화면은 같고 다음만 빠진다 (사용자 요청 2026-11-19):
+ * 가계부 켜고 끄기 · 카테고리 편집 · 가져오기 · 검색. API 는 손님 길로 간다(api.ts `useGuestRoutes`).
+ *
+ * 따로 만들지 않는 이유 — 같은 화면을 두 벌 들고 있으면 한쪽이 반드시 뒤처진다.
+ * 실제로 그랬다. 새는 것은 화면이 아니라 **서버가** 막는다(server/guest.ts).
+ */
+export function CalendarRoot({ guest = false }: { guest?: boolean } = {}) {
+  if (guest)
+    return (
+      <Routes>
+        <Route index element={<CalendarPage guest />} />
+        <Route path="photos" element={<PhotosPage guest />} />
+        <Route path="todo" element={<TodoPage guest />} />
+      </Routes>
+    );
   return (
     <Routes>
       <Route index element={<CalendarPage />} />
+      <Route path="photos" element={<PhotosPage />} />
+      <Route path="todo" element={<TodoPage />} />
       <Route path="import" element={<ImportPage />} />
       <Route path="search" element={<CalendarSearchPage />} />
     </Routes>
   );
 }
 
-function CalendarPage() {
+function CalendarPage({ guest = false }: { guest?: boolean }) {
+  const navigate = useNavigate();
+  const menu = useContextMenu();
   // 사진 붙은 일정·거래 → 줄에 작은 카메라 (앱마다 한 번만 받아 공유)
   const evPhotos = usePhotoMarks("calendar");
-  const txPhotos = usePhotoMarks("ledger");
+  const txPhotos = usePhotoMarks("ledger"); // 손님 길에서는 늘 빈 값이 온다
   const [params, setParams] = useSearchParams();
   const todayDate = today();
   const month = params.get("month") ?? todayDate.slice(0, 7);
@@ -85,7 +121,18 @@ function CalendarPage() {
   const holidays = useHolidays(days);
 
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [rawCategories, setCategories] = useState<Category[]>([]);
+  /**
+   * 동거인의 '끄고 보기' 는 **그 브라우저에만** 남는다.
+   *
+   * 주인 쪽 `hidden` 은 DB 에 저장돼서 기기가 달라도 따라오는데, 손님이 그걸 누르면 주인 화면까지
+   * 바뀐다. 그렇다고 아예 막아 두니 보기 불편하다고 해서(2026-11-19), 손님만 localStorage 로 돌린다.
+   */
+  const [guestHidden, setGuestHidden] = useState<number[]>(readGuestHidden);
+  const categories = useMemo(
+    () => (guest ? rawCategories.map((c) => ({ ...c, hidden: c.hidden || guestHidden.includes(c.id) })) : rawCategories),
+    [guest, rawCategories, guestHidden],
+  );
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   useEffect(() => {
@@ -100,7 +147,9 @@ function CalendarPage() {
   }, [from, to, reload]);
 
   // 가계부: 그날 쓴 돈, 정기 결제 예정. **끄면 아예 부르지 않는다** (요청 두 번이 통째로 빠진다)
-  const [showMoney, setShowMoney] = useShowMoney();
+  const [moneyPref, setShowMoney] = useShowMoney();
+  // 동거인에게는 가계부가 아예 없다 — 끈 것과 같게 두면 거래·정기 결제 요청이 통째로 빠진다
+  const showMoney = guest ? false : moneyPref;
   const [txs, setTxs] = useState<Transaction[]>([]);
   useEffect(() => {
     if (!showMoney) return setTxs([]);
@@ -211,9 +260,28 @@ function CalendarPage() {
   const fit = itemsThatFit(rowPx, MAX_ITEMS);
 
   const [side, setSide] = useState<Side>({ mode: "day" });
+  /**
+   * 지금 상대가 보고 있는지 (1분마다, 탭이 안 보이면 멈춘다).
+   * **그새 데이터가 바뀌었으면 일정을 다시 받는다** — 상대가 적은 게 1분 안에 보인다.
+   * 이미 1분마다 가는 요청에 꼬리표 하나를 얹은 것이라 왕복이 늘지 않는다.
+   */
+  const { seen, names } = usePresence(() => {
+    forgetCached(); // 안 비우면 들고 있던 옛 응답을 그대로 쓴다 (버전은 화면이 뜰 때 한 번만 묻는다)
+    setReload((n) => n + 1);
+  }, side.mode === "edit" || side.mode === "new");
+
+  /** 일정 줄을 눌렀을 때 — 방금 적은 것만 바로 수정, 나머지는 보기 */
+  const openOccurrence = (o: Occurrence) => {
+    const createdAt = o.event.createdAt;
+    const fresh = createdAt !== undefined && Date.now() - Date.parse(createdAt) < RECENT_MS;
+    setSide({ mode: fresh ? "edit" : "view", occurrence: o });
+  };
   // 다른 날을 고르면 그날 상세로 (달력에서 일정을 눌러 날짜가 바뀐 경우는 그 일정 수정을 유지)
   useEffect(
-    () => setSide((s) => (s.mode === "categories" || (s.mode === "edit" && s.occurrence.date === selected) ? s : { mode: "day" })),
+    () =>
+      setSide((s) =>
+        s.mode === "categories" || ((s.mode === "edit" || s.mode === "view") && s.occurrence.date === selected) ? s : { mode: "day" },
+      ),
     [selected],
   );
 
@@ -306,6 +374,15 @@ function CalendarPage() {
   }
 
   async function toggleCategory(c: Category) {
+    // 손님은 **제 브라우저에만** 남긴다 — 주인 설정(DB)을 건드리면 주인 화면까지 바뀐다
+    if (guest) {
+      setGuestHidden((list) => {
+        const next = list.includes(c.id) ? list.filter((id) => id !== c.id) : [...list, c.id];
+        writeGuestHidden(next);
+        return next;
+      });
+      return;
+    }
     setCategories((list) => list.map((x) => (x.id === c.id ? { ...x, hidden: !x.hidden } : x)));
     setCategories(await calendarApi.updateCategory(c.id, { hidden: !c.hidden }));
   }
@@ -332,30 +409,56 @@ function CalendarPage() {
             </button>
           </div>
         </div>
+        {/* 접속 표시는 **헤더**에 둔다 — 카테고리 칩들 사이에 섞여 있으면 칩으로 보인다 (사용자 요청 2026-11-20) */}
+        <HeaderSlot>
+          <PresenceDot seen={seen} names={names} me={guest ? "guest" : "owner"} />
+        </HeaderSlot>
         <div className="cal-filters" aria-label="카테고리 보기">
           {categories.map((c) => (
-            <button key={c.id} className={`cal-chip hb-c-${c.color} ${c.hidden ? "is-off" : ""}`} onClick={() => void toggleCategory(c)} aria-pressed={!c.hidden} title={c.hidden ? "켜기" : "끄고 보기"}>
+            <button
+              key={c.id}
+              className={`cal-chip hb-c-${c.color} ${c.hidden ? "is-off" : ""}`}
+              onClick={() => void toggleCategory(c)}
+              aria-pressed={!c.hidden}
+              title={c.hidden ? "켜기" : "끄고 보기"}
+            >
               <span className="cal-dot" aria-hidden="true" />
               {c.name}
             </button>
           ))}
-          {/* 가계부를 같이 볼지 — 카테고리 칩과 같은 모양으로, 끄면 흐려진다 */}
-          <button
-            className={`cal-chip hb-c-gray ${showMoney ? "" : "is-off"}`}
-            onClick={() => setShowMoney(!showMoney)}
-            aria-pressed={showMoney}
-            title={showMoney ? "가계부를 같이 보는 중 — 끄면 일정만 보여요" : "그날 쓴 돈·쓴 내역·정기 결제 예정을 같이 봐요"}
-          >
-            <span className="cal-dot" aria-hidden="true" />
-            가계부
-          </button>
-          <CalendarSearchBox className="cal-search" />
-          <button className="cal-tool" onClick={() => setSide({ mode: "categories" })}>
-            카테고리 편집
-          </button>
-          <Link className="cal-tool" to="/calendar/import">
-            가져오기
-          </Link>
+          {/* 아래 넷은 **주인만** — 동거인에게는 가계부도, 카테고리를 고칠 권한도 없다 */}
+          {!guest && (
+            <>
+              {/* 가계부를 같이 볼지 — 카테고리 칩과 같은 모양으로, 끄면 흐려진다 */}
+              <button
+                className={`cal-chip hb-c-gray ${showMoney ? "" : "is-off"}`}
+                onClick={() => setShowMoney(!showMoney)}
+                aria-pressed={showMoney}
+                title={showMoney ? "가계부를 같이 보는 중 — 끄면 일정만 보여요" : "그날 쓴 돈·쓴 내역·정기 결제 예정을 같이 봐요"}
+              >
+                <span className="cal-dot" aria-hidden="true" />
+                가계부
+              </button>
+              <CalendarSearchBox className="cal-search" />
+              {/* 가끔 쓰는 것 둘(카테고리 편집·가져오기)은 톱니바퀴 하나로 접는다 — 늘 펼쳐 두면
+                  달력 위 칩들과 섞여 자리만 먹는다 (사용자 요청 2026-11-20) */}
+              <button
+                className="cal-tool cal-gear"
+                aria-label="설정"
+                aria-haspopup="menu"
+                title="카테고리 편집 · 가져오기"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  menu({ x: r.left, y: r.bottom + 6 }, [
+                    { label: "카테고리 편집", onSelect: () => setSide({ mode: "categories" }) },
+                    { label: "가져오기", onSelect: () => navigate("/calendar/import") },
+                  ]);
+                }}
+              >
+                <GearIcon />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -473,7 +576,7 @@ function CalendarPage() {
                         onClick={(e) => {
                           e.stopPropagation();
                           go({ date });
-                          setSide({ mode: "edit", occurrence: o });
+                          openOccurrence(o);
                         }}
                       >
                         {o.event.startTime && !multi && <span className="cal-time">{o.event.startTime}</span>}
@@ -537,6 +640,14 @@ function CalendarPage() {
                   onDelete={remove}
                   onCancel={() => setSide({ mode: "day" })}
                 />
+              ) : side.mode === "view" ? (
+                <EventView
+                  key={`${side.occurrence.event.id}-${side.occurrence.start}`}
+                  occurrence={side.occurrence}
+                  categories={categories}
+                  onEdit={() => setSide({ mode: "edit", occurrence: side.occurrence })}
+                  onClose={() => setSide({ mode: "day" })}
+                />
               ) : (
                 <DayDetail
                   date={selected}
@@ -550,7 +661,7 @@ function CalendarPage() {
                   byId={byId}
                   onQuickAdd={quickAdd}
                   onDetail={(seed) => setSide({ mode: "new", seed })}
-                  onEdit={(o) => setSide({ mode: "edit", occurrence: o })}
+                  onEdit={openOccurrence}
                   onClose={() => go({ date: null })}
                 />
               )}
@@ -696,5 +807,15 @@ function DayDetail({
         </section>
       )}
     </>
+  );
+}
+
+/** 설정 톱니바퀴 (글자 대신 그림 하나 — 툴바에서 자리를 제일 적게 쓴다) */
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M19.4 14.6a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.47V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.47 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.47-1.05 1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 .97-1.47V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47.97H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.47.97z" />
+    </svg>
   );
 }

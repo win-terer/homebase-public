@@ -7,6 +7,7 @@ import type { ServerModule } from "@homebase/core/server";
 import { authRoutes, requireSession, sameOrigin } from "./auth.ts";
 import { bumpRev, dataVersion, readRev } from "./revision.ts";
 import { photoFileRoute, photoRoutes } from "./photos.ts";
+import { guestApi, guestPhotoFileRoute } from "@homebase/calendar/server/guest";
 import type { PhotoKV } from "@homebase/core/photos";
 
 /** 새 앱을 추가하면 여기에 등록한다. (웹 쪽은 src/web/modules.ts) */
@@ -15,6 +16,8 @@ export const serverModules: ServerModule[] = [calendarServer, ledgerServer];
 export interface Env {
   DB: SqlDb;
   LOGIN_PASSWORD?: string;
+  /** 동거인 비밀번호. 안 넣으면 주인 비밀번호를 그대로 쓴다 (auth.ts) */
+  GUEST_PASSWORD?: string;
   /** 사진 바이트 (KV homebase-img, wrangler.jsonc). 없으면 사진 올리기·보기만 꺼진다 */
   PHOTOS?: PhotoKV;
   /** 빌드된 화면 파일 (Workers Assets). 테스트에서는 없음 */
@@ -22,7 +25,7 @@ export interface Env {
 }
 
 export function createApp() {
-  const app = new Hono<{ Bindings: Env; Variables: { session?: { tokenHash: string; expiresAt: string }; skipRevBump?: boolean } }>();
+  const app = new Hono<{ Bindings: Env; Variables: { session?: { tokenHash: string; expiresAt: string }; guest?: boolean; skipRevBump?: boolean } }>();
 
   app.use(secureHeaders({ referrerPolicy: "same-origin", xFrameOptions: "DENY" }));
   app.use(async (c, next) => {
@@ -45,6 +48,8 @@ export function createApp() {
   app.get("/api/rev", async (c) => c.json({ rev: dataVersion(await readRev(c.env.DB)) }));
   /** 사진 바이트 — 안 바뀌는 파일이라 데이터 버전과 상관없이 오래 캐시한다. 그래서 ETag 미들웨어보다 먼저 */
   app.route("/api/photos/file", photoFileRoute());
+  /** 손님용 사진 바이트. 같은 이유로 여기, 공유 카테고리 확인은 그 안에서 한다 */
+  app.route("/api/guest/photos/file", guestPhotoFileRoute());
 
   /**
    * 바뀐 게 없으면 다시 만들지 않는다 (revision.ts 참고).
@@ -98,6 +103,11 @@ export function createApp() {
       .first<{ n: number }>();
     return c.json({ expiresAt: c.get("session")?.expiresAt ?? null, devices: row?.n ?? 0 });
   });
+  /**
+   * 동거인(손님)에게 열리는 전부. 주인 API 와 **따로** 판 좁은 길이다 — 왜 그랬는지는 guest.ts 참고.
+   * 손님 세션으로는 여기와 손님 화면 말고 어디도 못 간다 (auth.ts 의 `guestAllowed`).
+   */
+  app.route("/api/guest", guestApi());
   for (const m of serverModules) app.route(`/api/${m.id}`, m.createApi());
   app.route("/api/photos", photoRoutes());
   app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
@@ -105,9 +115,23 @@ export function createApp() {
   // 화면 파일. 로그인한 뒤에만 준다 (wrangler.jsonc 의 run_worker_first)
   app.get("*", async (c) => {
     if (!c.env.ASSETS) return c.text("not found", 404);
-    const res = await c.env.ASSETS.fetch(c.req.raw);
+    const url = new URL(c.req.url);
+    // 손님 화면은 **번들이 따로다**(host/vite.config.ts). SPA 되돌림이 index.html 로 떨어지면
+    // 손님 브라우저에 가계부 코드가 통째로 내려가므로, 여기서 손님 화면 파일을 집어 준다.
+    //
+    // **`/guest.html` 이 아니라 `/guest/` 를 청한다.** Workers Assets 는 `.html` 로 끝나는 요청에
+    // 확장자를 뗀 주소로 301 을 돌려주는데(html_handling 기본값), 그걸 그대로 넘기면 브라우저가
+    // `/guest` 를 다시 요청하고 워커가 또 301 을 받아 **끝없이 돈다**(2026-11-19 실제로 그랬다).
+    const guest = url.pathname === "/guest" || url.pathname.startsWith("/guest/");
+    const req = guest ? new Request(new URL("/guest/", url), c.req.raw) : c.req.raw;
+    const res = await c.env.ASSETS.fetch(req);
+    // 받침: 그래도 리디렉트가 오면 손님에게 넘기지 않는다 — 루프보다 빈 화면이 낫다
+    if (guest && res.status >= 300 && res.status < 400) {
+      console.error(`손님 화면 파일이 리디렉트로 왔다: ${res.status} → ${res.headers.get("Location")}`);
+      return c.text("화면을 불러오지 못했어요.", 500);
+    }
     // 해시가 붙은 파일은 오래 캐시해도 되지만 로그인한 사람 브라우저에만 남게 private
-    const cache = new URL(c.req.url).pathname.startsWith("/assets/") ? "private, max-age=31536000, immutable" : "no-store";
+    const cache = url.pathname.startsWith("/assets/") ? "private, max-age=31536000, immutable" : "no-store";
     const out = new Response(res.body, res);
     out.headers.set("Cache-Control", cache);
     return out;

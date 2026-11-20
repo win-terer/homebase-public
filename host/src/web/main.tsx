@@ -7,13 +7,16 @@ import "@homebase/ui/styles.css";
 import { Home } from "./Home.tsx";
 import { webModules } from "./modules.ts";
 
+// 앱 자신과 그 앱이 내놓은 탭을 나란히 — 일정 · 사진 · 가계부
+const nav = webModules.flatMap((m) => [{ path: m.path, title: m.title }, ...(m.tabs ?? [])]);
+
 // 데이터 버전을 미리 물어본다. 화면이 그려지는 동안 함께 돌아서, 첫 조회가 기다리지 않는다
 primeRev();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <AppShell nav={webModules}>
+      <AppShell nav={nav}>
         <Routes>
           <Route index element={<Home />} />
           {webModules.map(({ id, path, Root }) => (

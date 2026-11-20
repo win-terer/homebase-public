@@ -147,6 +147,20 @@ a {
   align-items: center;
   gap: 4px;
   margin-left: auto;
+  min-width: 0;
+}
+
+/* 화면이 채워 넣는 자리 (HeaderSlot) — 비어 있으면 자리를 안 차지한다 */
+.hb-header-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-right: 8px;
+  overflow: hidden;
+}
+
+.hb-header-slot:empty {
+  margin-right: 0;
 }
 
 /* 금액 보기 스위치 */
@@ -226,8 +240,11 @@ a {
   transition: filter 0.15s;
 }
 
-.hb-logout button {
+.hb-logout button,
+.hb-logout a {
+  display: inline-block;
   padding: 6px 10px;
+  text-decoration: none;
   border: 0;
   border-radius: 8px;
   background: none;
@@ -238,8 +255,22 @@ a {
   cursor: pointer;
 }
 
-.hb-logout button:hover {
+.hb-logout button:hover,
+.hb-logout a:hover {
   background: var(--hb-hover);
+}
+
+/* 지금 그 화면에 있으면 눌러도 갈 데가 없다는 걸 보여 준다 */
+.hb-logout a.active {
+  background: var(--hb-hover);
+  color: var(--hb-fg);
+}
+
+/* 버튼 몇 개를 나란히 */
+.hb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .hb-main {
@@ -397,7 +428,8 @@ a {
   }
   .hb-theme,
   .hb-privacy,
-  .hb-logout button {
+  .hb-logout button,
+  .hb-logout a {
     padding: 6px 7px;
   }
   .hb-nav a {
@@ -406,6 +438,9 @@ a {
   .hb-header {
     gap: 12px;
     padding: env(safe-area-inset-top) 16px 0;
+  }
+  .hb-header-slot {
+    margin-right: 4px;
   }
   .hb-main {
     padding: 16px;

@@ -1,10 +1,12 @@
 # 설치할 때 받는 값들. (이 파일에는 아무것도 적지 마세요 — 보기일 뿐입니다)
 #
 # LOGIN_PASSWORD  로그인 비밀번호. **반드시 길고 어렵게.** 이것만 알면 가계부가 전부 열립니다.
+# GUEST_PASSWORD  일정을 나눠 보는 사람에게 줄 비밀번호. 비워 두면 위의 것을 같이 씁니다.
 # IMPORT_TOKEN    메일에서 엑셀을 자동으로 올려 주는 도구가 쓰는 열쇠. 자동 가져오기를 안 쓰면 비워 두세요.
 # NOTIFY_TOKEN    아이폰 단축어가 결제 알림을 보낼 때 쓰는 열쇠. 안 쓰면 비워 두세요.
 #
 # 나중에 바꾸려면 Cloudflare 대시보드 > 해당 Worker > 설정 > 변수 및 시크릿 에서 고칩니다.
 LOGIN_PASSWORD=
+GUEST_PASSWORD=
 IMPORT_TOKEN=
 NOTIFY_TOKEN=

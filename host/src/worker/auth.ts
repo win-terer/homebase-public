@@ -11,7 +11,8 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { renderSVG } from "uqr";
 import type { SqlDb } from "@homebase/db";
-import { loginPage, messagePage, setupPasswordPage, setupQrPage } from "./pages.ts";
+import { guestLoginPage, loginPage, messagePage, setupPasswordPage, setupQrPage } from "./pages.ts";
+import { sharedCategories } from "@homebase/calendar/server/guest";
 import { newSecret, otpauthUrl, verifyTotp } from "./totp.ts";
 
 export interface AuthBindings {
@@ -21,10 +22,20 @@ export interface AuthBindings {
   IMPORT_TOKEN?: string;
   /** 폰 알림 전용 키 (워커 Secret). 없으면 `/notify` 도 가져오기 키로 연다 (Secret 넣기 전 과도기) */
   NOTIFY_TOKEN?: string;
+  /**
+   * 동거인(손님) 비밀번호 (워커 Secret, 넣어도 되고 안 넣어도 된다).
+   *
+   * **없으면 주인 비밀번호를 그대로 쓴다.** 그래도 동거인이 주인 자리로 들어오지는 못한다 —
+   * 주인 쪽은 OTP 가 한 겹 더 있고, 동거인에게는 그 앱이 없다. 알려 주기 싫거나 나중에 따로
+   * 바꾸고 싶으면 대시보드에 이 Secret 하나만 넣으면 그때부터 이 값만 먹는다.
+   */
+  GUEST_PASSWORD?: string;
 }
-type AuthEnv = { Bindings: AuthBindings; Variables: { session?: { tokenHash: string; expiresAt: string } } };
+type AuthEnv = { Bindings: AuthBindings; Variables: { session?: { tokenHash: string; expiresAt: string }; guest?: boolean } };
 
 export const SESSION_COOKIE = "__Host-hb_session";
+/** 손님 쿠키는 주인 것과 **다른 이름**이다. 한쪽을 들고 다른 쪽인 척할 수 없게 */
+export const GUEST_COOKIE = "__Host-hb_guest";
 const SETUP_COOKIE = "__Host-hb_setup";
 const SESSION_DAYS = 30;
 /** 남은 기간이 이보다 짧으면 연장한다 (매 요청마다 쓰지 않도록 하루 단위) */
@@ -51,7 +62,12 @@ async function passwordMatches(input: string, expected: string | undefined): Pro
   return diff === 0;
 }
 
-const ipHash = (c: Context) => sha256(`${c.req.header("CF-Connecting-IP") ?? "local"}|homebase`);
+/**
+ * 틀린 시도를 세는 열쇠. **주인과 손님을 따로 센다** — 집에서는 둘이 같은 공유기(같은 IP)라,
+ * 같이 세면 동거인이 비밀번호를 다섯 번 틀리는 것만으로 주인까지 10분 동안 못 들어간다.
+ */
+const ipHash = (c: Context, who: "owner" | "guest" = "owner") =>
+  sha256(`${c.req.header("CF-Connecting-IP") ?? "local"}|homebase${who === "guest" ? "-guest" : ""}`);
 
 /** 잠겼으면 안내 문구, 아니면 null */
 async function lockedMessage(db: SqlDb, ip: string, now: number): Promise<string | null> {
@@ -188,6 +204,75 @@ export function authRoutes() {
     return c.redirect("/");
   });
 
+  /* ── 동거인(손님) ─────────────────────────────────────────────
+   * 비밀번호 한 줄만 받는다. 열리는 곳이 일정 한 카테고리뿐이라(guest.ts) OTP 까지 치게 하면
+   * 밥 주고 바로 적는다는 목적이 무너진다. Secret 이 없으면 이 화면 자체가 없는 기능이다. */
+
+  /**
+   * 함께 보기를 켜 두었나. **이것이 유일한 스위치다** — 주인이 카테고리 하나에 [함께 보기] 를
+   * 켜야 이 문이 열리고, 끄면 그 자리에서 닫힌다 (세션이 남아 있어도 API 가 전부 403 이다).
+   */
+  const sharingOn = async (c: Context<AuthEnv>) => (await sharedCategories(c.env.DB).catch(() => [])).length > 0;
+  const notSharing = (c: Context<AuthEnv>) => c.html(messagePage("함께 보기", "아직 함께 보기로 한 일정이 없어요."), 404);
+
+  auth.get("/guest/login", async (c) => {
+    if (!(await sharingOn(c))) return notSharing(c);
+    return c.html(guestLoginPage({}));
+  });
+
+  auth.post("/guest/login", async (c) => {
+    if (!(await sharingOn(c))) return notSharing(c);
+    const now = Date.now();
+    const ip = await ipHash(c, "guest");
+    const locked = await lockedMessage(c.env.DB, ip, now);
+    if (locked) return c.html(guestLoginPage({ error: locked }), 429);
+    const form = await c.req.parseBody();
+    const password = typeof form.password === "string" ? form.password : "";
+    // 따로 정해 둔 게 있으면 그것만, 없으면 주인 비밀번호 (OTP 가 없어 주인 자리로는 못 간다)
+    if (!(await passwordMatches(password, c.env.GUEST_PASSWORD || c.env.LOGIN_PASSWORD))) {
+      await recordFail(c.env.DB, ip, now);
+      return c.html(guestLoginPage({ error: "비밀번호가 맞지 않아요." }), 401);
+    }
+    const token = randomToken();
+    const tokenHash = await sha256(token);
+    const expires = new Date(now + SESSION_DAYS * 86_400_000);
+    try {
+      await c.env.DB.batch([
+        c.env.DB.prepare("DELETE FROM auth_guest_sessions WHERE expires_at < ?").bind(new Date(now).toISOString()),
+        c.env.DB.prepare("INSERT INTO auth_guest_sessions (token_hash, expires_at, user_agent) VALUES (?, ?, ?)").bind(
+          tokenHash,
+          expires.toISOString(),
+          (c.req.header("User-Agent") ?? "").slice(0, 200),
+        ),
+        c.env.DB.prepare("DELETE FROM auth_fails WHERE ip_hash = ?").bind(ip),
+      ]);
+      // **정말 들어갔는지 확인한다.** 쿠키만 주고 줄이 없으면 들어올 때마다 로그인 화면으로
+      // 되돌아온다 — 쓰는 사람은 '로그인했는데 왜 또' 가 될 뿐 이유를 알 길이 없다.
+      const saved = await c.env.DB.prepare("SELECT 1 AS ok FROM auth_guest_sessions WHERE token_hash = ?").bind(tokenHash).first<{ ok: number }>();
+      if (!saved) throw new Error("손님 세션이 저장되지 않았어요");
+    } catch (e) {
+      // 표가 아직 없을 수 있다 (배포는 코드 → 마이그레이션 순서다). 주인 쪽은 멀쩡해야 한다
+      console.error(`손님 로그인 실패: ${String((e as Error)?.message ?? e)}`);
+      return c.html(
+        messagePage("함께 보기", "준비가 아직 안 끝났어요 (auth_guest_sessions). 잠시 뒤에 다시 해주세요."),
+        503,
+      );
+    }
+    setCookie(c, GUEST_COOKIE, token, { path: "/", secure: true, httpOnly: true, sameSite: "Lax", expires });
+    return c.redirect("/guest");
+  });
+
+  auth.post("/guest/logout", async (c) => {
+    const token = getCookie(c, GUEST_COOKIE);
+    if (token)
+      await c.env.DB.prepare("DELETE FROM auth_guest_sessions WHERE token_hash = ?")
+        .bind(await sha256(token))
+        .run()
+        .catch(() => {});
+    deleteCookie(c, GUEST_COOKIE, { path: "/", secure: true });
+    return c.redirect("/guest/login");
+  });
+
   auth.post("/logout", async (c) => {
     const token = getCookie(c, SESSION_COOKIE);
     if (token) await c.env.DB.prepare("DELETE FROM auth_sessions WHERE token_hash = ?").bind(await sha256(token)).run();
@@ -199,6 +284,8 @@ export function authRoutes() {
   auth.post("/logout-all", async (c) => {
     if (!(await hasSession(c))) return c.redirect("/login");
     await c.env.DB.prepare("DELETE FROM auth_sessions").run();
+    // 동거인 기기도 같이 끊는다 — '모든 기기' 라고 했으면 그래야 한다
+    await c.env.DB.prepare("DELETE FROM auth_guest_sessions").run().catch(() => {});
     deleteCookie(c, SESSION_COOKIE, { path: "/", secure: true });
     return c.redirect("/login");
   });
@@ -227,6 +314,31 @@ async function findSession(c: Context<AuthEnv>): Promise<{ tokenHash: string; ex
 
 const hasSession = async (c: Context<AuthEnv>) => (await findSession(c)) !== null;
 
+/**
+ * 손님 세션. 주인과 똑같이 **들어올 때마다 30일로 연장**한다(DB 쓰기는 하루 한 번까지) —
+ * 30일마다 비밀번호를 다시 치게 하면 번거롭기만 하고, 비용은 하루 한 줄이다.
+ * 표가 아직 없으면(마이그레이션 전) 조용히 '아님' — 주인 쪽 흐름을 깨지 않는다.
+ */
+async function hasGuestSession(c: Context<AuthEnv>): Promise<boolean> {
+  const token = getCookie(c, GUEST_COOKIE);
+  if (!token) return false;
+  const tokenHash = await sha256(token);
+  const row = await c.env.DB.prepare("SELECT expires_at FROM auth_guest_sessions WHERE token_hash = ? AND expires_at > ?")
+    .bind(tokenHash, new Date().toISOString())
+    .first<{ expires_at: string }>()
+    .catch(() => null);
+  if (!row) return false;
+  if (Date.parse(row.expires_at) - Date.now() < RENEW_BELOW_MS) {
+    const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000);
+    await c.env.DB.prepare("UPDATE auth_guest_sessions SET expires_at = ? WHERE token_hash = ?")
+      .bind(expires.toISOString(), tokenHash)
+      .run()
+      .catch(() => {});
+    setCookie(c, GUEST_COOKIE, token, { path: "/", secure: true, httpOnly: true, sameSite: "Lax", expires });
+  }
+  return true;
+}
+
 /** 로그인 페이지·등록 페이지 말고는 전부 로그인이 필요하다 (기본 거부) */
 // 아이콘은 로그인 화면·아이폰 홈 화면에서도 보여야 해서 로그인 없이 준다 (내용 없는 그림)
 // 메일 설정을 받아 가는 자리는 **코드 자체가 열쇠**라 로그인 없이 연다 (코드는 10분·한 번, mail-config.ts).
@@ -240,7 +352,21 @@ export const PUBLIC_PATHS = new Set([
   "/favicon.ico",
   "/apple-touch-icon.png",
   "/api/ledger/mail-config/claim",
+  "/guest/login",
 ]);
+
+/**
+ * 손님(동거인)이 갈 수 있는 **전부**. 나머지는 주소를 직접 쳐도 401 이다.
+ *
+ * - `/api/guest/…`  일정 공유 카테고리 하나 (apps/calendar/src/server/guest.ts)
+ * - `/guest…`       손님 화면과 로그아웃
+ * - `/assets/…`     화면 파일. 손님 화면은 **따로 묶인 번들**이라 가계부 코드는 안 내려간다
+ *
+ * 가계부(`/api/ledger/…`)·일정 주인 API(`/api/calendar/…`)·데이터 버전(`/api/rev`)은 **없다.**
+ * 열어 주는 쪽이 아니라 막는 쪽이 기본이라, 나중에 API 를 붙여도 손님에게 저절로 열리지 않는다.
+ */
+const guestAllowed = (path: string) =>
+  path === "/guest" || path.startsWith("/guest/") || path.startsWith("/api/guest/") || path.startsWith("/assets/");
 
 /**
  * 키로 들어올 수 있는 경로. **여기만** 열어 둔다. 세션이 없는 POST 에서만 보고, 헤더는 둘 다 `X-Import-Token`.
@@ -291,8 +417,28 @@ export const requireSession: MiddlewareHandler<AuthEnv> = async (c, next) => {
   }
   // 세션이 없을 때만 본다 — 로그인한 사람의 흐름은 건드리지 않는다
   if (await importTokenOk(c)) return next();
+  if (await hasGuestSession(c)) {
+    if (guestAllowed(c.req.path)) {
+      c.set("guest", true);
+      return next();
+    }
+    // 손님이 다른 곳을 짚었다. 화면이면 제 자리로 돌려보내고, API 면 그냥 막는다
+    if (c.req.method === "GET" && !c.req.path.startsWith("/api/")) return c.redirect("/guest");
+    return c.req.path.startsWith("/api/") ? c.json({ error: "여기는 볼 수 없어요" }, 401) : c.text("여기는 볼 수 없어요", 401);
+  }
   if (c.req.path.startsWith("/api/")) return c.json({ error: "로그인이 필요해요" }, 401);
   if (c.req.method !== "GET") return c.text("로그인이 필요해요", 401);
+  /**
+   * 손님 화면을 짚었는데 세션이 없다 — **되돌려 보내지 않고 그 자리에서 로그인 화면을 그린다.**
+   *
+   * 처음엔 `/guest/login` 으로 302 했는데, 세션 판정이 한 번이라도 어긋나면(쿠키는 받았는데 줄이
+   * 없는 경우 등) `/guest` ↔ `/guest/login` 을 끝없이 오가 브라우저가 ERR_TOO_MANY_REDIRECTS 를
+   * 띄웠다(2026-11-19 실제로 그랬다). 200 으로 그려 주면 루프 자체가 생기지 않는다.
+   * 주인 로그인으로 보내지 않는 이유는 따로 있다 — 동거인에게는 OTP 앱이 없다.
+   */
+  if (guestAllowed(c.req.path) && !c.req.path.startsWith("/assets/") && c.req.method === "GET") {
+    return c.html(guestLoginPage({}));
+  }
   const url = new URL(c.req.url);
   return c.redirect(`/login?next=${encodeURIComponent(url.pathname + url.search)}`);
 };

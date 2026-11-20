@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatDay } from "@homebase/ledger/web/dates.ts";
-import { addDays, daysBetween, type Occurrence, type Repeat } from "../shared/occurrences.ts";
+import { addDays, daysBetween, repeatLabel, timeLabel, type Occurrence, type Repeat } from "../shared/occurrences.ts";
 import type { Category, EventInput } from "./api.ts";
 import { PhotoStrip } from "@homebase/core/photos-web";
 
@@ -23,6 +23,78 @@ export interface Seed {
   title: string;
   startTime: string | null;
   endTime: string | null;
+}
+
+/**
+ * 일정 **보기**. 누르면 바로 수정 폼이 뜨던 것을 바꿨다 — 고치려고 누르는 것보다 그냥 보려고
+ * 누르는 일이 많다(2026-11-19 사용자 지적). 고치려면 [수정] 을 한 번 더 누른다.
+ *
+ * 단 **방금 적은 일정은 바로 수정으로 열린다**(CalendarRoot 의 `RECENT_MS`) — 적자마자
+ * 다시 눌렀다면 덜 적었거나 잘못 적은 것이다.
+ */
+export function EventView({
+  occurrence,
+  categories,
+  onEdit,
+  onClose,
+}: {
+  occurrence: Occurrence;
+  categories: Category[];
+  onEdit(): void;
+  onClose(): void;
+}) {
+  const e = occurrence.event;
+  const cat = categories.find((c) => c.id === e.categoryId);
+  const time = timeLabel(occurrence);
+  const span = occurrence.start === occurrence.end ? "" : ` ~ ${formatDay(occurrence.end)}`;
+  const repeat = repeatLabel(e);
+  return (
+    <div className="cal-view">
+      <header className="lg-panel-head">
+        <h2>일정</h2>
+        <button className="lg-icon-button" onClick={onClose} aria-label="닫기">
+          ✕
+        </button>
+      </header>
+
+      <h3 className="cal-view-title">{e.title}</h3>
+      {cat && (
+        <span className={`cal-chip hb-c-${cat.color} is-picked cal-view-cat`}>
+          <span className="cal-dot" aria-hidden="true" />
+          {cat.name}
+        </span>
+      )}
+
+      <dl className="cal-view-list">
+        <dt>언제</dt>
+        <dd>
+          {formatDay(occurrence.start)}
+          {span} · {time || "종일"}
+        </dd>
+        {repeat && (
+          <>
+            <dt>반복</dt>
+            <dd>{repeat}</dd>
+          </>
+        )}
+        {e.location && (
+          <>
+            <dt>장소</dt>
+            <dd>{e.location}</dd>
+          </>
+        )}
+      </dl>
+
+      {e.memo && <p className="cal-view-memo">{e.memo}</p>}
+      <PhotoStrip app="calendar" refId={e.id} />
+
+      <div className="cal-view-foot">
+        <button className="hb-button" onClick={onEdit}>
+          수정
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** 일정 추가·수정. 반복 일정의 한 회차를 열었으면 날짜는 그 회차 기준으로 보여준다 */

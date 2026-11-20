@@ -46,6 +46,18 @@ export function loginPage(opts: { next: string; error?: string }): string {
   );
 }
 
+export function guestLoginPage(opts: { error?: string }): string {
+  return page(
+    "함께 쓰기",
+    `<h1>함께 쓰기</h1><p>비밀번호를 넣으면 함께 보기로 한 일정이 열려요.</p>
+<form method="post" action="/guest/login">
+<label for="password">비밀번호</label>
+<input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+<button>들어가기</button>${errorLine(opts.error)}
+</form>`,
+  );
+}
+
 export function setupPasswordPage(error?: string): string {
   return page(
     "OTP 등록",
