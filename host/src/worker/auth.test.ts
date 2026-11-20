@@ -620,3 +620,43 @@ describe("OTP 없이 쓰기", () => {
     expect((await (await send("/api/session")).json())).toMatchObject({ otp: true });
   });
 });
+
+describe("막혔을 때 나가는 길", () => {
+  it("비밀번호가 틀리면 **대시보드에서 바꾸는 법**을 알려 준다", async () => {
+    await setUp();
+    cookies = {};
+    const page = await (await send("/login", { method: "POST", form: { password: "틀린값", code: "000000" } })).text();
+    expect(page).toContain("비밀번호를 잊으셨나요?");
+    expect(page).toContain("LOGIN_PASSWORD");
+  });
+
+  it("10분 잠금 화면에도 같은 안내가 있다 — 제일 답답한 자리다", async () => {
+    for (let i = 0; i < 6; i++) await send("/setup", { method: "POST", form: { password: "틀린값" } });
+    const res = await send("/setup", { method: "POST", form: { password: "틀린값" } });
+    expect(res.status).toBe(429);
+    const page = await res.text();
+    expect(page).toContain("10분 뒤에 다시");
+    expect(page).toContain("비밀번호를 잊으셨나요?");
+  });
+
+  it("맞게 넣었을 때는 안내를 띄우지 않는다 (평소엔 잔소리다)", async () => {
+    const page = await (await send("/setup")).text();
+    expect(page).not.toContain("비밀번호를 잊으셨나요?");
+  });
+
+  it("손님에게는 '만든 사람에게 물어보세요' 라고 한다 — 대시보드는 손님 것이 아니다", async () => {
+    await loginOwnerForGuest();
+    const page = await (await send("/guest/login", { method: "POST", form: { password: "틀린값" } })).text();
+    expect(page).toContain("만든 사람에게 물어보세요");
+    expect(page).not.toContain("LOGIN_PASSWORD");
+  });
+});
+
+/** 손님 문을 열어 두기 위한 최소 준비 — 주인 로그인 + 카테고리 하나 공유 */
+async function loginOwnerForGuest() {
+  await setUp();
+  const cats = (await (await send("/api/calendar/categories", { method: "POST", body: JSON.stringify({ name: "함께", color: "blue" }), headers: { "Content-Type": "application/json" } })).json()) as { id: number; name: string }[];
+  const id = cats.find((c) => c.name === "함께")!.id;
+  await send("/api/calendar/guest", { method: "PUT", body: JSON.stringify({ categoryIds: [id] }), headers: { "Content-Type": "application/json" } });
+  cookies = {};
+}

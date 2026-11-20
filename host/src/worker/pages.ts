@@ -26,6 +26,9 @@ code { display: block; padding: 8px 10px; border: 1px solid var(--border); borde
 .skip button.link { width: auto; height: auto; margin: 0; padding: 0; background: none; color: var(--muted); font-weight: 400; font-size: 14px; text-decoration: underline; }
 .skip button.link:hover { color: var(--fg); }
 .skip .note { margin: 6px 0 0; font-size: 13px; }
+.hint { margin: 10px 0 0; font-size: 13px; line-height: 1.5; }
+.hint b { color: var(--fg); font-weight: 600; }
+code.inline { display: inline; padding: 1px 5px; border-radius: 5px; letter-spacing: 0; }
 `;
 
 function page(title: string, body: string): string {
@@ -35,6 +38,19 @@ function page(title: string, body: string): string {
 }
 
 const errorLine = (error?: string) => (error ? `<p class="error" role="alert">${escape(error)}</p>` : "");
+
+/**
+ * 막힌 사람에게 **나가는 길**을 보여 준다.
+ *
+ * 비밀번호를 잘못 넣고 설치하면 영영 못 들어간다고 생각하기 쉽다 — 실제로는 대시보드에서
+ * 바꾸면 그만인데, 그 안내가 README 에만 있어서 **정작 막힌 화면에서는 안 보였다**
+ * (사용자 지적 2026-11-20). 틀렸을 때만 띄운다 — 평소에 떠 있으면 잔소리다.
+ */
+const forgotLine = (error?: string) =>
+  error
+    ? `<p class="hint">비밀번호를 잊으셨나요? Cloudflare 대시보드 → <b>컴퓨트 → Workers 및 Pages</b> → 내 것 →
+<b>설정 → 변수 및 시크릿</b> 에서 <code class="inline">LOGIN_PASSWORD</code> 를 바꾸면 바로 쓸 수 있어요. 다시 올릴 필요 없어요.</p>`
+    : "";
 
 /** `otp` 가 false 면 OTP 를 안 쓰기로 한 상태 — 코드 칸을 아예 그리지 않는다 */
 export function loginPage(opts: { next: string; error?: string; otp?: boolean }): string {
@@ -48,7 +64,7 @@ export function loginPage(opts: { next: string; error?: string; otp?: boolean })
 <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
 ${otp ? `<label for="code">OTP 코드</label>
 <input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>` : ""}
-<button>로그인</button>${errorLine(opts.error)}
+<button>로그인</button>${errorLine(opts.error)}${forgotLine(opts.error)}
 </form>`,
   );
 }
@@ -60,7 +76,7 @@ export function guestLoginPage(opts: { error?: string }): string {
 <form method="post" action="/guest/login">
 <label for="password">비밀번호</label>
 <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-<button>들어가기</button>${errorLine(opts.error)}
+<button>들어가기</button>${errorLine(opts.error)}${opts.error ? `<p class="hint">비밀번호는 이 달력을 만든 사람에게 물어보세요.</p>` : ""}
 </form>`,
   );
 }
@@ -72,7 +88,7 @@ export function setupPasswordPage(error?: string): string {
 <form method="post" action="/setup">
 <label for="password">비밀번호</label>
 <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
-<button>다음</button>${errorLine(error)}
+<button>다음</button>${errorLine(error)}${forgotLine(error)}
 </form>`,
   );
 }
