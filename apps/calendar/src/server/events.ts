@@ -74,10 +74,39 @@ export async function listCategories(db: SqlDb): Promise<Category[]> {
   return rows.results.map((r) => ({ ...r, hidden: r.hidden === 1 }));
 }
 
+/** 달력 칸에 한 줄로 그릴 할 일 */
+export interface DayTodo {
+  id: number;
+  title: string;
+  dueDate: string;
+  categoryId: number | null;
+}
+
+/**
+ * 그 기간에 **날짜를 콕 집어 둔** 안 끝낸 할 일.
+ *
+ * `이번 주`·`이번 달` 은 **일부러 뺀다.** 러프하게 잡았다는 건 날짜에 매이지 않겠다는 뜻인데
+ * 그걸 달력에 박으면 그 뜻이 사라지고, 일주일(한 달) 내내 같은 줄이 깔려 칸이 터진다
+ * (사용자와 정함 2026-11-20). 그런 것들은 할 일 탭에서 본다.
+ */
+export async function todosIn(db: SqlDb, from: string, to: string, catIds?: readonly number[]): Promise<DayTodo[]> {
+  if (catIds && !catIds.length) return [];
+  const limit = catIds ? ` AND category_id IN (${catIds.map(() => "?").join(", ")})` : "";
+  const rows = await db
+    .prepare(
+      `SELECT id, title, due_date AS dueDate, category_id AS categoryId FROM calendar_todos
+       WHERE done_at IS NULL AND due_kind = 'date' AND due_date BETWEEN ? AND ?${limit} ORDER BY due_date, id`,
+    )
+    .bind(from, to, ...(catIds ?? []))
+    .all<DayTodo>()
+    .catch(() => ({ results: [] })); // 표가 아직 없으면 조용히 빈 값 (배포는 코드 → 마이그레이션 순서다)
+  return rows.results;
+}
+
 /** [from, to] 에 보일 수 있는 일정 원본(반복은 펼치지 않음)과 카테고리. 한 번짜리는 시작일 인덱스로 from-62일 ~ to 만 */
-export async function eventsIn(db: SqlDb, from: string, to: string): Promise<{ events: CalendarEvent[]; categories: Category[] }> {
+export async function eventsIn(db: SqlDb, from: string, to: string): Promise<{ events: CalendarEvent[]; categories: Category[]; todos: DayTodo[] }> {
   if (!DATE.test(from) || !DATE.test(to) || to < from || daysBetween(from, to) > 400) throw new BadRequest("기간이 올바르지 않아요.");
-  const [once, repeating, categories] = await Promise.all([
+  const [once, repeating, categories, todos] = await Promise.all([
     db
       .prepare(`SELECT ${EVENT_COLUMNS} FROM calendar_events WHERE repeat IS NULL AND start_date BETWEEN ? AND ? AND end_date >= ?`)
       .bind(addDays(from, -MAX_SPAN_DAYS), to, from)
@@ -87,8 +116,9 @@ export async function eventsIn(db: SqlDb, from: string, to: string): Promise<{ e
       .bind(to, addDays(from, -MAX_SPAN_DAYS))
       .all<EventRow>(),
     listCategories(db),
+    todosIn(db, from, to),
   ]);
-  return { events: [...once.results, ...repeating.results].map(toEvent), categories };
+  return { events: [...once.results, ...repeating.results].map(toEvent), categories, todos };
 }
 
 /** 모아 보기 한 장 — 썸네일만 쓰므로 바이트는 안 담는다 */

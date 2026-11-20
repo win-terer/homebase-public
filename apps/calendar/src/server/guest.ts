@@ -19,7 +19,7 @@ import { json, ReadBudgetError, type SqlDb } from "@homebase/db";
 import { dropPhotos, PHOTO_MAX, photoKey, savePhoto } from "@homebase/core/photos";
 import { touchPresence } from "@homebase/core/presence";
 import { addDays, daysBetween, expandEvents, MAX_SPAN_DAYS, type CalendarEvent } from "../shared/occurrences.ts";
-import { BadRequest, DATE, EVENT_COLUMNS, type EventRow, insertEvent, parseEvent, photosIn, toEvent } from "./events.ts";
+import { BadRequest, DATE, EVENT_COLUMNS, type EventRow, insertEvent, parseEvent, photosIn, todosIn, toEvent } from "./events.ts";
 import { DONE_LIMIT, getTodo, insertTodo, listTodos, parseTodo } from "./todos.ts";
 
 /** 동거인과 공유하는 일정 카테고리 id 들이 들어 있는 자리 (JSON 배열) */
@@ -146,7 +146,9 @@ export function guestApi() {
         .all<EventRow>(),
     ]);
     const events: CalendarEvent[] = [...once.results, ...repeating.results].map(toEvent);
-    return c.json({ events, categories: cats });
+    // 날짜를 콕 집어 둔 할 일도 한 줄씩 (공유 카테고리 것만)
+    const todos = await todosIn(c.env.DB, from, to, ids(cats));
+    return c.json({ events, categories: cats, todos });
   });
 
   /** 새 일정. 카테고리는 **공유 목록 안에서만** 고를 수 있다 (목록 밖 값은 첫 번째로 떨어진다) */

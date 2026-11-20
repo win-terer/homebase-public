@@ -1247,3 +1247,19 @@ a.lg-text-button {
 .cal-todo-empty {
   padding: 18px 0;
 }
+
+/* 달력 칸의 할 일 한 줄 — 일정과 같은 모양을 쓰되 **빈 네모** 하나로 구분한다.
+   날짜를 콕 집어 둔 것만 온다('이번 주'·'이번 달' 은 안 그린다 — 칸이 터진다) */
+.cal-todo-row {
+  cursor: pointer;
+}
+
+.cal-todo-row .cal-todo-box {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 1px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.75;
+}

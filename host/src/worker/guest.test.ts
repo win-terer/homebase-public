@@ -411,3 +411,47 @@ describe("할 일", () => {
     expect((await send("/api/guest/todos", {}, "guest")).status).toBe(403);
   });
 });
+
+describe("할 일이 달력에 뜨는 범위", () => {
+  async function makeTodo(categoryId: number, title: string, body: Record<string, unknown>) {
+    return (await (await send("/api/calendar/todos", { method: "POST", json: { categoryId, title, ...body } })).json()) as { id: number };
+  }
+  const monthEvents = async (who: "owner" | "guest" = "owner") =>
+    (await (
+      await send(`/api/${who === "guest" ? "guest" : "calendar"}/events?from=2026-11-01&to=2026-11-30`, {}, who)
+    ).json()) as { todos?: { title: string }[] };
+
+  it("**날짜를 콕 집은 것만** 달력에 온다 — 이번 주·이번 달·언젠가는 안 온다", async () => {
+    await loginOwner();
+    const pet = await makeCategory("반려", "사료 22g");
+    await makeTodo(pet.categoryId, "병원 예약", { dueKind: "date", dueDate: "2026-11-25" });
+    await makeTodo(pet.categoryId, "이번 주 것", { dueKind: "week" });
+    await makeTodo(pet.categoryId, "이번 달 것", { dueKind: "month" });
+    await makeTodo(pet.categoryId, "언젠가 것", { dueKind: "someday" });
+
+    expect((await monthEvents()).todos?.map((t) => t.title)).toEqual(["병원 예약"]);
+  });
+
+  it("끝낸 것과 다른 달 것은 안 온다", async () => {
+    await loginOwner();
+    const pet = await makeCategory("반려", "사료 22g");
+    const done = await makeTodo(pet.categoryId, "끝낸 것", { dueKind: "date", dueDate: "2026-11-10" });
+    await send(`/api/calendar/todos/${done.id}/done`, { method: "POST", json: { done: true } });
+    await makeTodo(pet.categoryId, "다음 달 것", { dueKind: "date", dueDate: "2026-12-05" });
+    await makeTodo(pet.categoryId, "이 달 것", { dueKind: "date", dueDate: "2026-11-25" });
+
+    expect((await monthEvents()).todos?.map((t) => t.title)).toEqual(["이 달 것"]);
+  });
+
+  it("동거인 달력에는 공유 카테고리 할 일만 온다", async () => {
+    await loginOwner();
+    const pet = await makeCategory("반려", "사료 22g");
+    const mine = await makeCategory("내 일정", "회의");
+    await makeTodo(pet.categoryId, "같이 보는 것", { dueKind: "date", dueDate: "2026-11-25" });
+    await makeTodo(mine.categoryId, "나만 보는 것", { dueKind: "date", dueDate: "2026-11-26" });
+    await share(pet.categoryId);
+    await loginGuest();
+
+    expect((await monthEvents("guest")).todos?.map((t) => t.title)).toEqual(["같이 보는 것"]);
+  });
+});

@@ -116,7 +116,7 @@ export const forgetCached = () => clearWebCache();
 
 export const calendarApi = {
   events: (from: string, to: string) =>
-    request<{ events: CalendarEvent[]; categories: Category[] }>(`${BASE}/events?from=${from}&to=${to}`),
+    request<{ events: CalendarEvent[]; categories: Category[]; todos?: DayTodo[] }>(`${BASE}/events?from=${from}&to=${to}`),
   create: (e: EventInput) => send<CalendarEvent>(`${BASE}/events`, "POST", e),
   /**
    * 그 기간 일정에 붙은 사진 (모아 보기). 손님 길은 이름이 다르다 — 거기선 `/photos` 가
@@ -160,6 +160,14 @@ export const calendarApi = {
     send<Category[]>(`/api/calendar/categories/${id}`, "PATCH", change),
   removeCategory: (id: number) => send<Category[]>(`/api/calendar/categories/${id}`, "DELETE"),
 };
+
+/** 달력 칸에 한 줄로 그릴 할 일 (날짜를 콕 집어 둔 것만 온다) */
+export interface DayTodo {
+  id: number;
+  title: string;
+  dueDate: string;
+  categoryId: number | null;
+}
 
 export interface TodoList {
   open: Todo[];

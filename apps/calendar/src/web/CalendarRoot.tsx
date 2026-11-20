@@ -15,7 +15,7 @@ import { DayPopover } from "@homebase/ledger/web/DayPopover.tsx";
 import { plannedByDate, type Planned, type RecurringItem } from "@homebase/ledger/web/recurring.ts";
 import "@homebase/ledger/web/ledger.css";
 import { addDays, daysBetween, expandEvents, repeatLabel, timeLabel, type CalendarEvent, type Occurrence } from "../shared/occurrences.ts";
-import { calendarApi, forgetCached, type Category, type EventInput } from "./api.ts";
+import { calendarApi, forgetCached, type Category, type DayTodo, type EventInput } from "./api.ts";
 import { CategoryEditor } from "./CategoryEditor.tsx";
 import { EventForm, EventView, type SaveScope, type Seed } from "./EventForm.tsx";
 import { PresenceDot, usePresence } from "./presence.tsx";
@@ -134,6 +134,8 @@ function CalendarPage({ guest = false }: { guest?: boolean }) {
     [guest, rawCategories, guestHidden],
   );
   const [error, setError] = useState<string | null>(null);
+  /** 달력에 한 줄로 그릴 할 일 — **날짜를 콕 집어 둔 것만** 서버가 준다 */
+  const [dayTodos, setDayTodos] = useState<DayTodo[]>([]);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     setError(null);
@@ -141,6 +143,7 @@ function CalendarPage({ guest = false }: { guest?: boolean }) {
       (r) => {
         setEvents(r.events);
         setCategories(r.categories);
+        setDayTodos(r.todos ?? []);
       },
       (e: Error) => setError(e.message),
     );
@@ -387,6 +390,16 @@ function CalendarPage({ guest = false }: { guest?: boolean }) {
     setCategories(await calendarApi.updateCategory(c.id, { hidden: !c.hidden }));
   }
 
+  /** 날짜별 할 일. 끈 카테고리는 일정과 **같은 잣대**로 함께 숨는다 */
+  const todosByDate = useMemo(() => {
+    const map = new Map<string, DayTodo[]>();
+    for (const t of dayTodos) {
+      if (t.categoryId !== null && hidden.has(t.categoryId)) continue;
+      map.set(t.dueDate, [...(map.get(t.dueDate) ?? []), t]);
+    }
+    return map;
+  }, [dayTodos, hidden]);
+
   const dayOccurrences = selected ? (occurrences.get(selected) ?? []) : [];
   const dayPlanned = selected ? (planned.get(selected) ?? []) : [];
   // 그날 쓴 것 — "내가 그날 뭐 했더라" 를 떠올리는 데 액수보다 **어디서 썼나**가 낫다(사용자 요청)
@@ -488,14 +501,18 @@ function CalendarPage({ guest = false }: { guest?: boolean }) {
              * 통째로 `+N건 더` 뒤로 밀려 보이지도, 끌지도 못했다(사용자 지적). 남는 자리에만
              * 결제를 채운다. 펼친 칸은 전부 보여 준다 — 그때는 스크롤이 생겨도 괜찮다.
              */
-            const total = evRows.length + txRows.length + plans.length;
+            // 날짜를 콕 집어 둔 할 일. 일정 바로 다음 자리를 받는다 — 그날 해야 할 것이라 결제보다 먼저 봐야 한다
+            const todoRows = todosByDate.get(date) ?? [];
+            const total = evRows.length + todoRows.length + txRows.length + plans.length;
             // 다 안 들어가면 마지막 한 줄은 `+N건 더` 몫으로 비운다
             const room = total > fit ? fit - 1 : fit;
             const evShown = open ? evRows : evRows.slice(0, room);
-            const txShown = open ? txRows : txRows.slice(0, Math.max(0, room - evShown.length));
+            const todoShown = open ? todoRows : todoRows.slice(0, Math.max(0, room - evShown.length));
+            const txShown = open ? txRows : txRows.slice(0, Math.max(0, room - evShown.length - todoShown.length));
             const shown = [...evShown, ...txShown].sort(byTime);
-            const planShown = open ? plans : plans.slice(0, Math.max(0, room - shown.length));
-            const more = evRows.length - evShown.length + txRows.length - txShown.length + plans.length - planShown.length;
+            const planShown = open ? plans : plans.slice(0, Math.max(0, room - shown.length - todoShown.length));
+            const more =
+              evRows.length - evShown.length + todoRows.length - todoShown.length + txRows.length - txShown.length + plans.length - planShown.length;
             return (
               <div
                 key={date}
@@ -582,6 +599,24 @@ function CalendarPage({ guest = false }: { guest?: boolean }) {
                         {o.event.startTime && !multi && <span className="cal-time">{o.event.startTime}</span>}
                         <span className="cal-title">{o.event.title}</span>
                         <PhotoMark n={evPhotos[String(o.event.id)]} />
+                      </li>
+                    );
+                  })}
+                  {/* 할 일 — 체크 모양 하나로 일정과 구분한다. 누르면 할 일 화면으로 */}
+                  {todoShown.map((t) => {
+                    const c = t.categoryId !== null ? byId.get(t.categoryId) : undefined;
+                    return (
+                      <li
+                        key={`todo-${t.id}`}
+                        className={`cal-event cal-todo-row hb-c-${c?.color ?? "gray"}`}
+                        title={`할 일 · ${t.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(guest ? "/todo" : "/calendar/todo");
+                        }}
+                      >
+                        <span className="cal-todo-box" aria-hidden="true" />
+                        <span className="cal-title">{t.title}</span>
                       </li>
                     );
                   })}
